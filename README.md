@@ -1,14 +1,14 @@
 # Projeto Integrador — Laboratório de Sistemas de Controle
 
-Protótipo de interface para monitoramento e controle de um simulador de sistemas de controle, acompanhado de uma simulação de planta térmica com controlador PI. A arquitetura pretendida é **Simulador → NI USB-6003 → MATLAB → Dashboard**. O projeto está em uma fase inicial: a interface existe, mas ainda não há integração funcional com o NI USB-6003/MATLAB, backend, banco de dados ou autenticação real.
+Aplicação de monitoramento e controle para um simulador de sistemas de controle, acompanhada de uma simulação local de planta térmica com controlador PI. A arquitetura é **Simulador → NI USB-6003 → MATLAB → Laravel → Dashboard**. O backend Laravel implementa a API REST usada pelo dashboard e pelo cliente MATLAB; a integração com hardware real ainda precisa ser validada no ambiente do laboratório.
 
 ## Estado atual
 
 ### Interface web
 
-A aplicação está em `frontend/index.html`. É uma página estática que carrega React 18, Babel, Axios, Chart.js e TailwindCSS por CDN; a aplicação React e suas telas ficam no próprio HTML. Os arquivos auxiliares são:
+A interface React continua em `frontend/index.html` e é servida pelo Laravel em `backend/`. A página carrega React 18, Babel, Axios, Chart.js e TailwindCSS por CDN; a aplicação React e suas telas ficam no próprio HTML. Os arquivos auxiliares são:
 
-- `frontend/js/api.js`: configura Axios para `http://localhost:8000/api` e adiciona um token Bearer. Na ausência de token, usa o valor demonstrativo `seu_token_aqui`.
+- `frontend/js/api.js`: configura Axios para a API na mesma origem e envia o token Bearer da sessão quando disponível.
 - `frontend/js/simulacao.js`: simula a resposta térmica de primeira ordem e um controlador PI discreto, com saturação do sinal entre 0 e 10 V e anti-windup.
 - `frontend/js/stats.js`: calcula média, variância amostral, assimetria, curtose e uma contagem simples de outliers (valores a mais de 2,5 desvios padrão da média); exige pelo menos quatro valores.
 
@@ -17,9 +17,9 @@ A interface apresenta:
 - Login e cadastro que tentam chamar `/auth/login` e `/auth/register`.
 - Dashboard com temperatura, setpoint, liga/desliga do controle, gráfico e estatísticas.
 - “Sombra Digital”, uma simulação local com setpoints, perturbação e parâmetros PI; seus ganhos não são enviados a um equipamento.
-- Uma tela administrativa com registros e informações de backup demonstrativos.
+- Uma tela administrativa que consulta eventos reais; o endpoint de restauração registra a solicitação e informa que o serviço ainda não está configurado.
 
-Sem backend, o dashboard gera leituras aleatórias no navegador a cada dois segundos e mostra o estado “Modo Simulado”. A simulação PI também roda localmente. O login rápido apenas grava um usuário escolhido no `localStorage`; não autentica ninguém. A tabela de logs e a informação de backup são dados fixos de demonstração. Os comandos de controle e restauração exigem as rotas do backend; o estado do controlador não é alterado otimisticamente pelo navegador.
+O dashboard não fabrica leituras quando a API está indisponível: ele mantém os últimos dados e mostra o estado offline. A simulação PI ainda roda localmente e não comanda o dispositivo. Login e cadastro usam tokens Laravel Sanctum; não há login rápido nem dados de usuário/admin de demonstração. O estado do controlador vem das leituras MATLAB, não de cliques na interface.
 
 ### Scripts Python de exemplo (legado)
 
@@ -29,16 +29,16 @@ Sem backend, o dashboard gera leituras aleatórias no navegador a cada dois segu
 - `esp.py` também envia leituras aleatórias a cada cinco segundos para `/readings`; apesar do nome do arquivo, não se comunica com um ESP nem com o NI USB-6003.
 - `usuario.py` pede um nome e valor e tenta enfileirar um comando em `POST /commands/add`.
 
-Os scripts apontam para `http://localhost/api` e usam um token de exemplo. São somente demonstrações de tráfego HTTP e não fazem parte do fluxo Simulador → MATLAB → Dashboard. As rotas, o formato definitivo das respostas, a validação do token e o processamento/armazenamento dessas chamadas ainda dependem do backend a ser implementado.
+Os scripts apontam para `http://localhost/api` e usam um token de exemplo. São somente demonstrações de tráfego HTTP e não fazem parte do fluxo Simulador → MATLAB → Dashboard.
 
 ## Comunicação com o ambiente simulado
 
 Hoje há dois fluxos de simulação independentes no navegador:
 
-1. **Dashboard offline:** quando não consegue carregar `/readings/history?limit=60` do backend, o navegador cria uma série de temperaturas aleatórias suavizadas em direção a 25 °C. Isso é apenas uma visualização local; não vem de um equipamento e não é persistido. Os botões não controlam a simulação offline.
+1. **Dashboard offline:** quando não consegue carregar `/readings/history?limit=60`, a interface mostra o estado offline e não inventa leituras. Os botões não alteram localmente o estado do controlador.
 2. **Sombra Digital:** ao submeter o formulário, `simulacao.js` calcula no navegador uma resposta de planta térmica discretizada, usando ganho, constante de tempo, passo de simulação e parâmetros PI. A saída inclui temperatura, setpoint, erro e sinal de controle, exibidos em quatro gráficos. Nenhum dado é enviado ao MATLAB ou ao hardware.
 
-### Arquitetura pretendida
+### Arquitetura integrada
 
 O caminho de aquisição e visualização é **Simulador → NI USB-6003 → MATLAB → Dashboard**:
 
@@ -49,35 +49,36 @@ O caminho de aquisição e visualização é **Simulador → NI USB-6003 → MAT
 
 O caminho de controle funciona no sentido inverso: **Dashboard → backend → MATLAB → NI USB-6003 → Simulador**. O dashboard enfileira comandos autorizados; MATLAB valida/aplica o comando pela interface de aquisição e o backend registra o resultado. O contrato REST inicial está descrito abaixo. WebSocket (ou Socket.IO) ainda pode ser adotado para atualizações instantâneas; hoje o dashboard consulta o histórico por polling.
 
-O backend Laravel e a integração física ainda não foram validados juntos. `temperature_client_node.m` publica uma leitura por segundo e busca comandos pela API usando um MATLAB background worker, mantendo o loop DAQ a 100 Hz fora das chamadas de rede. A aplicação Laravel ainda não existe neste repositório, então essas rotas precisam ser implementadas antes de usar a integração. O navegador continua consultando o histórico por polling a cada dois segundos quando há um backend disponível, e os scripts Python legados continuam sendo exemplos de tráfego HTTP.
+`backend/` contém a API Laravel 12. `temperature_client_node.m` publica uma leitura por segundo e busca comandos pela API usando um MATLAB background worker, mantendo o loop DAQ a 100 Hz fora das chamadas de rede. A API e o hardware ainda precisam ser testados juntos com um NI USB-6003 real. O navegador consulta o histórico por polling a cada dois segundos; WebSocket e processamento efetivo de backup/restauração ainda não estão configurados.
 
-## Alvo de implementação: migração para Laravel
+## Implementação Laravel
 
-A próxima etapa é substituir a estrutura estática e simulada por uma aplicação organizada em Laravel, preservando a experiência de monitoramento e controle, mas conectando-a a uma API e a dados reais. O frontend poderá ser integrado ao Laravel ou mantido como aplicação React; essa decisão deve ser consolidada na arquitetura da migração. A proposta funcional é:
+O projeto Laravel fica em `backend/` e serve a interface existente, autentica usuários, persiste leituras e comandos e registra eventos administrativos. A simulação PI permanece inteiramente no navegador.
 
-### Backend (Laravel / PHP 8+)
+### Backend (Laravel 12 / PHP 8.2+)
 
-- Criar uma API REST modular, validada e documentada para autenticação, leituras, parâmetros/comandos, histórico, logs e operações administrativas.
-- Receber e registrar as medições publicadas pela integração MATLAB, com timestamp e origem/dispositivo de aquisição.
-- Receber parâmetros do painel, armazenar os comandos pendentes e disponibilizá-los ao MATLAB; registrar confirmação/resultado da execução.
-- Retornar séries históricas e estado do sistema para o dashboard.
-- Usar Eloquent e consultas parametrizadas, validação de entrada, autorização por política/role, middleware de autenticação, limitação de requisições e HTTPS em produção.
-- Usar MySQL ou PostgreSQL. Usar `Hash` para senhas e `Crypt`/OpenSSL para dados confidenciais que precisem ser recuperados; não tratar hash de senha como criptografia reversível.
+- A API REST implementa autenticação, leituras, comandos, histórico, logs e operações administrativas em `backend/routes/api.php`.
+- Eloquent persiste as medições MATLAB, comandos pendentes/confirmados e eventos de auditoria.
+- Middleware separa a autenticação dos usuários (Sanctum) da credencial de serviço MATLAB e protege operações administrativas por role.
+- As requisições validam os dados e autenticam as rotas; senhas usam hash Laravel e os dados confidenciais são criptografados com casts Laravel.
+- SQLite é usado localmente; MySQL/PostgreSQL podem ser configurados no `.env` para produção, com HTTPS obrigatório no ambiente de implantação.
 
 ### Contrato de comunicação MATLAB ↔ Laravel
 
-As rotas abaixo formam o contrato inicial esperado por `temperature_client_node.m` e pelo protótipo web. As rotas Laravel ainda precisam ser implementadas. O serviço MATLAB usa um Bearer token próprio; ele não deve compartilhar o token demonstrativo do navegador.
+As rotas abaixo formam o contrato implementado para `temperature_client_node.m` e para o dashboard. O serviço MATLAB usa um Bearer token próprio, configurado no ambiente do Laravel; ele não compartilha tokens Sanctum dos usuários.
 
-| Operação | Rota proposta | Uso |
+| Operação | Rota | Uso |
 | --- | --- | --- |
-| Registrar / autenticar | `POST /api/auth/register`, `POST /api/auth/login` | Criar sessão/credencial e autenticar usuários. |
+| Registrar / autenticar | `POST /api/auth/register`, `POST /api/auth/login` | Criar usuário comum e emitir token Sanctum. |
 | Receber leitura | `POST /api/readings` | MATLAB envia origem, timestamp e variáveis da aquisição. |
 | Consultar histórico | `GET /api/readings/history?limit=60` | Dashboard recupera leituras; cada item deve incluir `recorded_at` e `variables.temp`. |
 | Enfileirar comando | `POST /api/commands/add` | Interface registra parâmetros, por exemplo setpoint ou flag. |
 | Buscar comandos | `GET /api/commands` | Serviço MATLAB autenticado consulta comandos pendentes, em ordem de criação. |
 | Confirmar comando | `POST /api/commands/ack` | MATLAB confirma comandos aplicados ou rejeitados. |
 | Consultar logs | `GET /api/admin/logs` | Administrador consulta eventos de operação e segurança. |
-| Restaurar backup | `POST /api/admin/restore` | Administrador autorizado inicia uma restauração auditada. |
+| Restaurar backup | `POST /api/admin/restore` | Registra a solicitação administrativa e responde `503` até configurar um serviço de restauração. |
+
+As leituras, valores de comandos, endereços IP e metadados de auditoria são criptografados com os casts Laravel e a `APP_KEY` da aplicação. Essa chave deve ser protegida e mantida fora do controle de versão. A API usa SQLite para desenvolvimento; configure MySQL/PostgreSQL pelo `.env` em produção.
 
 Payload de leitura enviado a cada segundo:
 
@@ -93,34 +94,59 @@ Payload de leitura enviado a cada segundo:
 }
 ```
 
-`GET /api/commands` deve retornar `{"commands":[{"id":123,"name":"setpoint","value":45},{"id":124,"name":"flag","value":1}]}`. A interface enfileira `setpoint` (20–99 °C) e `flag` (0 = OFF, 1 = ON) usando o contrato já demonstrado em `frontend/index.html`. Para cada comando, MATLAB envia `{"id":123,"status":"applied"}` ou `{"id":123,"status":"rejected","reason":"..."}` a `/api/commands/ack`. O backend deve validar/autenticar a origem, retornar apenas comandos pendentes e registrar a confirmação; o estado do controlador deve ser exibido a partir das leituras, não inferido apenas do clique no navegador.
+`GET /api/commands` retorna `{"commands":[{"id":123,"name":"setpoint","value":45},{"id":124,"name":"flag","value":1}]}`. A interface enfileira `setpoint` (20–99 °C) e `flag` (0 = OFF, 1 = ON) usando o contrato de `frontend/index.html`. Para cada comando, MATLAB envia `{"id":123,"status":"applied"}` ou `{"id":123,"status":"rejected","reason":"..."}` a `/api/commands/ack`. A API autentica a origem, retorna apenas comandos pendentes e registra a confirmação; o estado do controlador é exibido a partir das leituras, não inferido apenas do clique no navegador.
 
 Se uma chamada à API falhar, o worker força o estado para OFF. Depois da recuperação, uma ativação ON que ficou pendente durante a indisponibilidade é rejeitada; o usuário precisa ativar novamente pelo dashboard. A aquisição e o controle local continuam no período de 100 Hz, mas se o worker deixar de responder por três segundos o controlador também vai para OFF.
 
-Para atualizações em tempo real, implementar WebSocket (ou Socket.IO) para publicar novas leituras e mudanças de estado ao dashboard. REST continua adequado para autenticação, configuração de parâmetros, histórico e operações administrativas. Até essa implementação, a interface permanece em polling.
+WebSocket (ou Socket.IO) ainda não está implementado; até lá, a interface consulta o histórico por polling. REST atende autenticação, configuração de parâmetros, histórico e operações administrativas.
 
 ### Frontend
 
-- Migrar a tela estática para componentes React organizados (ou Vue, se essa for a decisão do projeto), com JavaScript ES6+, Axios, TailwindCSS/Bootstrap e Chart.js/Recharts.
-- Implementar autenticação real via sessão segura do Laravel ou JWT, protegendo rotas e removendo login rápido, tokens de exemplo e confiança em roles armazenadas no navegador.
-- Manter formulários de controle e dashboard responsivos e acessíveis.
-- Mostrar leituras em tempo real, séries históricas, média, variância, assimetria, curtose e identificação de outliers/anomalias, deixando claro o intervalo de dados e o método estatístico usado.
-- Apresentar status de conexão, estado do dispositivo/controlador e mensagens de erro vindas da API.
-- Restringir a interface administrativa a administradores; a autorização correspondente também deve ser aplicada no backend.
+- A tela React existente é servida pelo Laravel; o dashboard, gráfico, estatísticas e formulário de controle permanecem no protótipo.
+- A autenticação usa tokens Sanctum; o backend aplica autorização administrativa independentemente da navegação/role exibida no navegador.
+- A interface apresenta estado da conexão, leituras históricas e confirmações pendentes de comandos; atualizações continuam em polling.
+- A Sombra Digital segue local e não envia seus ganhos PI ao MATLAB.
 
 ### Armazenamento, segurança e operação
 
-- Criptografar antes de persistir os dados coletados que forem abrangidos pela política de confidencialidade (leituras, parâmetros e logs), mantendo chaves fora do repositório e gerenciando sua rotação. Descriptografar somente no caminho autorizado de exibição/uso.
+- Leituras, valores de comandos e metadados/IP dos logs usam casts criptografados Laravel e a chave local `APP_KEY`; a chave deve ficar fora do repositório. Planeje rotação de chaves para produção.
 - Registrar timestamp e identidade do usuário, serviço MATLAB ou origem de aquisição responsável, respeitando o modelo de dados aplicável a cada evento.
 - Restringir logs, administração e restauração a usuários com perfil administrativo; usuários comuns podem controlar o sistema e consultar séries históricas autorizadas.
-- Automatizar backups pelo menos diariamente, proteger os arquivos e testar periodicamente a restauração. Disponibilizar a restauração somente por fluxo administrativo auditado.
+- Backups automáticos e execução de restauração ainda precisam ser configurados. Até isso ser feito, a rota de restauração registra a solicitação administrativa e responde `503`, sem afirmar sucesso.
 - Proteger credenciais e tráfego, validar e autorizar cada operação no servidor, armazenar senhas com hash seguro e registrar eventos de autenticação e controle sem expor segredos.
 
-## Executar o protótipo
+## Executar a aplicação
 
-Abra `frontend/index.html` em um navegador para explorar a interface e as simulações locais. Algumas funcionalidades podem depender de servir os arquivos por HTTP, conforme a configuração do navegador. Sem um backend Laravel em `http://localhost:8000/api`, as tentativas de autenticação, histórico, controle e restauração não serão persistentes; o dashboard continuará usando os dados simulados do navegador.
+No PowerShell:
 
-Os scripts em `code_base/` requerem Python e a biblioteca `requests`, além de um backend compatível para que as chamadas tenham efeito. Configure endereço e credenciais de teste seguros antes de usá-los; os valores presentes são placeholders.
+```powershell
+Set-Location backend
+composer install
+Copy-Item .env.example .env
+php artisan key:generate
+New-Item -ItemType File -Path database\database.sqlite
+php artisan migrate
+```
+
+Defina um segredo forte apenas no `backend/.env`:
+
+```dotenv
+MATLAB_LARAVEL_API_TOKEN=<segredo-forte-compartilhado-com-matlab>
+```
+
+Inicie a aplicação com `php artisan serve --host 127.0.0.1 --port 8000` e abra `http://127.0.0.1:8000`. Cadastros criam usuários comuns. Para promover uma conta a administradora, execute `php artisan tinker` e rode no prompt:
+
+```php
+$user = App\Models\User::where('email', 'admin@example.com')->firstOrFail();
+$user->is_admin = true;
+$user->save();
+```
+
+A autorização administrativa também é validada pelo backend.
+
+Execute os testes de API com `php artisan test`.
+
+Os scripts em `code_base/` requerem Python e a biblioteca `requests`; são exemplos legados e não fazem parte da integração MATLAB.
 
 ### Executar a ponte MATLAB
 
@@ -132,17 +158,17 @@ setenv("MATLAB_LARAVEL_API_TOKEN", "<token-de-servico>")
 temperature_client_node
 ```
 
-O token deve ser emitido e validado pelo backend para a integração MATLAB e não deve ser salvo no repositório. O script mantém o DAQ no loop principal e executa as chamadas Laravel em um background worker. O comando de ativação deve ser enviado pelo dashboard autenticado; o backend deve autorizar essa operação e enfileirá-la para MATLAB.
+Use o mesmo segredo de `MATLAB_LARAVEL_API_TOKEN` configurado no `backend/.env`, sem salvá-lo no repositório. O script mantém o DAQ no loop principal e executa as chamadas Laravel em um background worker. O comando de ativação deve ser enviado pelo dashboard autenticado; o backend autoriza a operação e a enfileira para MATLAB.
 
 ## Escopo deste repositório hoje
 
 | Recurso | Situação |
 | --- | --- |
-| Interface de login, dashboard, controle e administração | Protótipo estático; login rápido e dados administrativos são demonstrativos. |
+| Interface de login, dashboard, controle e administração | React servido pelo Laravel; autenticação, leituras, comandos e logs integrados à API. |
 | Simulação PI da planta | Executada localmente no navegador; sem ligação com MATLAB ou hardware. |
-| Simulação de leituras no dashboard | Fallback local quando o backend não está disponível. |
-| Ponte MATLAB ↔ API Laravel | Implementada em `temperature_client_node.m`; exige as rotas Laravel descritas acima e validação em hardware real. |
+| Simulação de leituras no dashboard | Removida; a interface informa indisponibilidade da API sem criar dados falsos. |
+| Ponte MATLAB ↔ API Laravel | Implementada em `temperature_client_node.m` e `backend/`; aguarda validação com hardware real. |
 | Scripts Python de cliente HTTP | Exemplos legados que geram dados aleatórios; não representam a arquitetura pretendida. |
-| API Laravel, autenticação e autorização reais | A implementar. |
-| Banco de dados, criptografia de dados persistidos e logs reais | A implementar. |
-| WebSocket, backups diários e restauração administrativa | A implementar. |
+| API Laravel, autenticação, autorização, leituras, comandos e auditoria | Implementadas; configuradas por padrão para SQLite local. |
+| Criptografia de leituras, valores de comandos e metadados de auditoria | Implementada via casts Laravel, protegida pela `APP_KEY`. |
+| WebSocket, backups diários e execução real de restauração | Ainda não implementados; `/api/admin/restore` registra o pedido e retorna `503`. |

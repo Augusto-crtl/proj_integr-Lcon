@@ -19,7 +19,7 @@
   <script src="js/api.js"></script>
   <script src="js/stats.js"></script>
   <script src="js/simulacao.js"></script>
-
+ 
   <!-- Aplicação React -->
   <script type="text/babel">
     const { useState, useEffect, useRef } = React;
@@ -102,8 +102,8 @@
           const { data } = await api.post(rota, payload);
           localStorage.setItem("token", data.token);
           entrar(data.user);
-        } catch {
-          setAviso("Servidor Laravel ainda desligado. Use os botões de acesso rápido abaixo.");
+        } catch (error) {
+          setAviso(error.response?.data?.message || "Não foi possível autenticar com o servidor Laravel.");
         }
       };
 
@@ -140,17 +140,6 @@
               {cadastro ? "Já tem conta? Fazer login" : "Não tem conta? Cadastre-se"}
             </button>
 
-            <div className="pt-4 border-t space-y-2">
-              <p className="text-xs text-center text-slate-400">Acesso rápido para testar sem backend:</p>
-              <div className="grid grid-cols-2 gap-2">
-                <button onClick={() => entrar({ name: "Aluno", role: "user" })} className="text-xs bg-slate-200 hover:bg-slate-300 py-2 rounded font-medium">
-                  Entrar como Usuário
-                </button>
-                <button onClick={() => entrar({ name: "Administrador", role: "admin" })} className="text-xs bg-slate-800 hover:bg-slate-900 text-white py-2 rounded font-medium">
-                  Entrar como Admin
-                </button>
-              </div>
-            </div>
           </div>
         </div>
       );
@@ -181,31 +170,22 @@
             if (Number.isFinite(reportedSetpoint)) setAppliedSetpoint(reportedSetpoint);
             setStatus("Online (Laravel)");
           } catch {
-            setStatus("Modo Simulado (Backend Offline)");
-            setAtivo(false);
-            setAppliedSetpoint(null);
-            setHoras((prev) => [...prev.slice(-39), new Date().toLocaleTimeString()]);
-            setTemps((prev) => {
-              const ultima = prev.at(-1) ?? 27;
-              const alvo = ativo ? Number(setpoint) : 25;
-              const nova = Number((ultima + (alvo - ultima) * 0.15 + (Math.random() - 0.5) * 0.5).toFixed(2));
-              return [...prev.slice(-39), nova];
-            });
+            setStatus("Offline (Laravel)");
           }
         };
 
         atualizar();
         const timer = setInterval(atualizar, 2000);
         return () => clearInterval(timer);
-      }, [ativo, setpoint]);
+      }, []);
 
       const enviarSetpoint = async (e) => {
         e.preventDefault();
         try {
           await api.post("/commands/add", { name: "setpoint", value: Number(setpoint) });
           setCommandMessage("Setpoint command queued; waiting for the controller reading.");
-        } catch {
-          setCommandMessage("Could not send the setpoint command to Laravel.");
+        } catch (error) {
+          setCommandMessage(error.response?.data?.message || "Could not send the setpoint command to Laravel.");
         }
       };
 
@@ -214,8 +194,8 @@
         try {
           await api.post("/commands/add", { name: "flag", value: novo ? 1 : 0 });
           setCommandMessage("Controller command queued; waiting for the controller reading.");
-        } catch {
-          setCommandMessage("Could not send the controller command to Laravel.");
+        } catch (error) {
+          setCommandMessage(error.response?.data?.message || "Could not send the controller command to Laravel.");
         }
       };
 
@@ -336,17 +316,26 @@
     // Tela 4: Administração (Logs e Backups)
     function TelaAdmin() {
       const [msg, setMsg] = useState("");
-      const logs = [
-        { id: 1, usuario: "admin@unesp.br", ip: "192.168.0.10", acao: "Login no sistema", data: "2026-11-25 14:10:02" },
-        { id: 2, usuario: "user@unesp.br", ip: "192.168.0.14", acao: "Alterou setpoint para 45 °C", data: "2026-11-25 14:15:18" },
-      ];
+      const [msgError, setMsgError] = useState(false);
+      const [logs, setLogs] = useState([]);
+
+      useEffect(() => {
+        api.get("/admin/logs")
+          .then(({ data }) => setLogs(data.logs))
+          .catch((error) => {
+            setMsgError(true);
+            setMsg(error.response?.data?.message || "Não foi possível carregar os logs.");
+          });
+      }, []);
 
       const restaurar = async () => {
         try {
-          await api.post("/admin/restore");
-          setMsg("Backup restaurado com sucesso no MySQL!");
-        } catch {
-          setMsg("Restauração simulada com sucesso (aguardando backend Laravel).");
+          const { data } = await api.post("/admin/restore");
+          setMsgError(false);
+          setMsg(data.message);
+        } catch (error) {
+          setMsgError(true);
+          setMsg(error.response?.data?.message || "Não foi possível iniciar a restauração.");
         }
       };
 
@@ -357,14 +346,14 @@
           <div className="bg-white p-5 rounded-xl shadow-sm border flex justify-between items-center">
             <div>
               <h2 className="font-semibold">Backup Automático Diário</h2>
-              <p className="text-sm text-slate-500">Última cópia salva: backup_ltr701.sql</p>
+              <p className="text-sm text-slate-500">A restauração requer um serviço de backup configurado.</p>
             </div>
             <button onClick={restaurar} className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg font-medium">
               Restaurar Backup
             </button>
           </div>
 
-          {msg && <div className="p-3 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-lg text-sm">{msg}</div>}
+          {msg && <div className={`p-3 border rounded-lg text-sm ${msgError ? "bg-red-50 text-red-700 border-red-200" : "bg-emerald-50 text-emerald-800 border-emerald-200"}`}>{msg}</div>}
 
           <div className="bg-white p-5 rounded-xl shadow-sm border overflow-x-auto">
             <h2 className="font-semibold mb-3">Logs de Acesso e Operação</h2>
@@ -375,9 +364,10 @@
               <tbody>
                 {logs.map((l) => (
                   <tr key={l.id} className="border-b last:border-0">
-                    <td className="py-2">{l.data}</td><td className="py-2">{l.usuario}</td><td className="py-2 font-mono text-xs">{l.ip}</td><td className="py-2">{l.acao}</td>
+                    <td className="py-2">{new Date(l.created_at).toLocaleString()}</td><td className="py-2">{l.user?.email ?? l.actor}</td><td className="py-2 font-mono text-xs">{l.ip_address ?? "--"}</td><td className="py-2">{l.action}</td>
                   </tr>
                 ))}
+                {logs.length === 0 && <tr><td className="py-2 text-slate-500" colSpan="4">Nenhum evento registrado.</td></tr>}
               </tbody>
             </table>
           </div>
@@ -393,7 +383,12 @@
       });
       const [aba, setAba] = useState("dashboard");
 
-      const sair = () => {
+      const sair = async () => {
+        try {
+          await api.post("/auth/logout");
+        } catch (error) {
+          console.error("Não foi possível revogar o token no Laravel.", error);
+        }
         localStorage.removeItem("user");
         localStorage.removeItem("token");
         setUser(null);
