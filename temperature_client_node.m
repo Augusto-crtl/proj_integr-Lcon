@@ -70,8 +70,14 @@ while true
     end
 
     if strcmp(workerFuture.State, "finished")
+        workerError = workerFuture.Error;
+        if isempty(workerError)
+            error("temperature_client_node:ApiWorkerStopped", ...
+                "The Laravel API background worker stopped without reporting an exception.");
+        end
         error("temperature_client_node:ApiWorkerStopped", ...
-            "The Laravel API background worker stopped unexpectedly.");
+            "The Laravel API background worker stopped unexpectedly:%s%s", ...
+            newline, getReport(workerError, "extended", "hyperlinks", "off"));
     end
 
     if toc(lastWorkerHeartbeat) >= workerHeartbeatTimeout
