@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sistema Web — Kit LTR701</title>
+  <!-- TailwindCSS, React 18, Babel, Axios e Chart.js -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body class="bg-slate-100 text-slate-800">
+  <div id="root"></div>
+
+  <!-- Scripts auxiliares do projeto -->
+  <script src="js/api.js"></script>
+  <script src="js/stats.js"></script>
+  <script src="js/simulacao.js"></script>
+
+  <!-- Aplicação React -->
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    // Componente reutilizável de Gráfico (Chart.js)
+    function GraficoLinha({ titulo, labels, dados, cor, unidade }) {
+      const canvasRef = useRef(null);
+      const chartRef = useRef(null);
+
+      useEffect(() => {
+        if (!canvasRef.current) return;
+        if (chartRef.current) {
+          chartRef.current.data.labels = labels;
+          chartRef.current.data.datasets[0].data = dados;
+          chartRef.current.update("none");
+          return;
+        }
+
+        chartRef.current = new Chart(canvasRef.current, {
+          type: "line",
+          data: {
+            labels: labels,
+            datasets: [{
+              label: `${titulo} (${unidade})`,
+              data: dados,
+              borderColor: cor,
+              backgroundColor: cor + "22",
+              borderWidth: 2,
+              pointRadius: 0,
+              tension: 0.2,
+            }],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
+            scales: {
+              x: { ticks: { maxTicksLimit: 8 } },
+            },
+          },
+        });
+
+        return () => {
+          if (chartRef.current) {
+            chartRef.current.destroy();
+            chartRef.current = null;
+          }
+        };
+      }, [labels, dados]);
+
+      return (
+        <div className="bg-white p-4 rounded-xl shadow-sm border">
+          <h3 className="font-semibold text-sm text-slate-700 mb-2">{titulo}</h3>
+          <div className="h-56">
+            <canvas ref={canvasRef}></canvas>
+          </div>
+        </div>
+      );
+    }
+
+    // Tela 1: Login e Cadastro
+    function TelaLogin({ onLogin }) {
+      const [cadastro, setCadastro] = useState(false);
+      const [nome, setNome] = useState("");
+      const [email, setEmail] = useState("");
+      const [senha, setSenha] = useState("");
+      const [aviso, setAviso] = useState("");
+
+      const entrar = (usuario) => {
+        localStorage.setItem("user", JSON.stringify(usuario));
+        onLogin(usuario);
+      };
+
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        setAviso("");
+        try {
+          const rota = cadastro ? "/auth/register" : "/auth/login";
+          const payload = cadastro ? { name: nome, email, password: senha } : { email, password: senha };
+          const { data } = await api.post(rota, payload);
+          localStorage.setItem("token", data.token);
+          entrar(data.user);
+        } catch {
+          setAviso("Servidor Laravel ainda desligado. Use os botões de acesso rápido abaixo.");
+        }
+      };
+
+      return (
+        <div className="min-h-screen flex items-center justify-center p-4">
+          <div className="bg-white p-8 rounded-xl shadow-md w-full max-w-md space-y-5">
+            <h1 className="text-2xl font-bold text-center">
+              {cadastro ? "Criar Conta" : "Acesso — Kit LTR701"}
+            </h1>
+
+            {aviso && <p className="text-xs bg-amber-50 text-amber-800 p-3 rounded border border-amber-200">{aviso}</p>}
+
+            <form onSubmit={handleSubmit} className="space-y-4">
+              {cadastro && (
+                <div>
+                  <label className="block text-sm font-medium">Nome</label>
+                  <input type="text" required value={nome} onChange={(e) => setNome(e.target.value)} className="w-full mt-1 p-2 border rounded-lg" />
+                </div>
+              )}
+              <div>
+                <label className="block text-sm font-medium">E-mail</label>
+                <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="w-full mt-1 p-2 border rounded-lg" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium">Senha</label>
+                <input type="password" required value={senha} onChange={(e) => setSenha(e.target.value)} className="w-full mt-1 p-2 border rounded-lg" />
+              </div>
+              <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg font-medium">
+                {cadastro ? "Cadastrar" : "Entrar"}
+              </button>
+            </form>
+
+            <button onClick={() => setCadastro(!cadastro)} className="w-full text-sm text-blue-600 hover:underline">
+              {cadastro ? "Já tem conta? Fazer login" : "Não tem conta? Cadastre-se"}
+            </button>
+
+            <div className="pt-4 border-t space-y-2">
+              <p className="text-xs text-center text-slate-400">Acesso rápido para testar sem backend:</p>
+              <div className="grid grid-cols-2 gap-2">
+                <button onClick={() => entrar({ name: "Aluno", role: "user" })} className="text-xs bg-slate-200 hover:bg-slate-300 py-2 rounded font-medium">
+                  Entrar como Usuário
+                </button>
+                <button onClick={() => entrar({ name: "Administrador", role: "admin" })} className="text-xs bg-slate-800 hover:bg-slate-900 text-white py-2 rounded font-medium">
+                  Entrar como Admin
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // Tela 2: Dashboard, Controle Remoto e Estatística
+    function TelaDashboard() {
+      const [horas, setHoras] = useState([]);
+      const [temps, setTemps] = useState([]);
+      const [setpoint, setSetpoint] = useState(45);
+      const [ativo, setAtivo] = useState(false);
+      const [status, setStatus] = useState("Conectando...");
+
+      useEffect(() => {
+        const atualizar = async () => {
+          try {
+            const { data } = await api.get("/readings/history?limit=60");
+            setHoras(data.map((d) => new Date(d.recorded_at).toLocaleTimeString()));
+            setTemps(data.map((d) => Number(d.variables?.temp ?? 0)));
+            setStatus("Online (Laravel)");
+          } catch {
+            setStatus("Modo Simulado (Backend Offline)");
+            setHoras((prev) => [...prev.slice(-39), new Date().toLocaleTimeString()]);
+            setTemps((prev) => {
+              const ultima = prev.at(-1) ?? 27;
+              const alvo = ativo ? Number(setpoint) : 25;
+              const nova = Number((ultima + (alvo - ultima) * 0.15 + (Math.random() - 0.5) * 0.5).toFixed(2));
+              return [...prev.slice(-39), nova];
+            });
+          }
+        };
+
+        atualizar();
+        const timer = setInterval(atualizar, 2000);
+        return () => clearInterval(timer);
+      }, [ativo, setpoint]);
+
+      const enviarSetpoint = async (e) => {
+        e.preventDefault();
+        try { await api.post("/commands/add", { name: "setpoint", value: Number(setpoint) }); } catch {}
+      };
+
+      const alternarFlag = async () => {
+        const novo = !ativo;
+        setAtivo(novo);
+        try { await api.post("/commands/add", { name: "flag", value: novo ? 1 : 0 }); } catch {}
+      };
+
+      const stats = calcularEstatisticas(temps);
+      const tempAtual = temps.at(-1) ?? "--";
+
+      return (
+        <div className="space-y-6">
+          <div className="flex justify-between items-center">
+            <h1 className="text-2xl font-bold">Monitoramento e Controle — Kit LTR701</h1>
+            <span className="text-xs px-3 py-1 rounded-full bg-slate-200 font-medium">{status}</span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-white p-5 rounded-xl shadow-sm border">
+              <p className="text-sm text-slate-500">Temperatura Atual</p>
+              <p className="text-4xl font-bold text-blue-600 mt-1">{tempAtual} °C</p>
+            </div>
+
+            <form onSubmit={enviarSetpoint} className="bg-white p-5 rounded-xl shadow-sm border flex gap-2 items-end">
+              <div className="flex-1">
+                <label className="block text-sm text-slate-600 mb-1">Set Point (°C)</label>
+                <input type="number" min="20" max="99" step="0.5" value={setpoint} onChange={(e) => setSetpoint(e.target.value)} className="w-full border rounded-lg p-2" />
+              </div>
+              <button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium">Aplicar</button>
+            </form>
+
+            <div className="bg-white p-5 rounded-xl shadow-sm border flex flex-col justify-between">
+              <p className="text-sm text-slate-500">Controlador PI (Flag)</p>
+              <button onClick={alternarFlag} className={`w-full py-2.5 rounded-lg text-white font-semibold ${ativo ? "bg-red-600" : "bg-emerald-600"}`}>
+                {ativo ? "Desligar Controle (Flag = 0)" : "Ligar Controle (Flag = 1)"}
+              </button>
+            </div>
+          </div>
+
+          <GraficoLinha titulo="Temperatura em Tempo Real / Histórico" labels={horas} dados={temps} cor="#2563eb" unidade="°C" />
+
+          {stats && (
+            <div className="bg-white p-5 rounded-xl shadow-sm border">
+              <h2 className="font-semibold text-slate-700 mb-3">Estatística Descritiva</h2>
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-center">
+                <div className="p-3 bg-slate-50 rounded-lg"><p className="text-xs text-slate-500">Média</p><p className="text-lg font-bold">{stats.media} °C</p></div>
+                <div className="p-3 bg-slate-50 rounded-lg"><p className="text-xs text-slate-500">Variância</p><p className="text-lg font-bold">{stats.variancia}</p></div>
+                <div className="p-3 bg-slate-50 rounded-lg"><p className="text-xs text-slate-500">Assimetria</p><p className="text-lg font-bold">{stats.assimetria}</p></div>
+                <div className="p-3 bg-slate-50 rounded-lg"><p className="text-xs text-slate-500">Curtose</p><p className="text-lg font-bold">{stats.curtose}</p></div>
+                <div className="p-3 bg-slate-50 rounded-lg"><p className="text-xs text-slate-500">Outliers</p><p className="text-lg font-bold text-amber-600">{stats.outliers}</p></div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // Tela 3: Sombra Digital (Simulação LCON-I com 4 gráficos)
+    function TelaSimulacao() {
+      const [params, setParams] = useState({
+        tempoFinal: 120, tempInicial: 25, sp1: 45, perturbacao: -5,
+        instantePerturbacao: 50, sp2: 60, instanteMudancaSp: 80, kp: 0.8, ki: 0.08,
+      });
+      const [resultado, setResultado] = useState(null);
+      const [erro, setErro] = useState("");
+
+      const alterar = (campo, valor) => setParams({ ...params, [campo]: Number(valor) });
+
+      const simular = (e) => {
+        e.preventDefault();
+        setErro("");
+        if (params.sp1 <= params.tempInicial || params.sp1 >= 100) {
+          setErro("O Set Point 1 deve ser maior que a temperatura inicial e menor que 100 °C.");
+          return;
+        }
+        if (params.sp2 >= 100) {
+          setErro("O Set Point 2 deve ser menor que 100 °C.");
+          return;
+        }
+        setResultado(executarSimulacaoPI(params));
+      };
+
+      return (
+        <div className="space-y-6">
+          <div>
+            <h1 className="text-2xl font-bold">Sombra Digital — Simulação do Sistema</h1>
+            <p className="text-sm text-slate-500">Os ganhos Kp e Ki desta simulação não são enviados ao MATLAB.</p>
+          </div>
+
+          {erro && <div className="p-3 bg-red-50 text-red-700 border border-red-200 rounded-lg text-sm">{erro}</div>}
+
+          <form onSubmit={simular} className="bg-white p-5 rounded-xl shadow-sm border space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div><label className="text-xs font-medium">Tempo Final (s)</label><input type="number" value={params.tempoFinal} onChange={(e) => alterar("tempoFinal", e.target.value)} className="w-full border rounded p-2 mt-1" /></div>
+              <div><label className="text-xs font-medium">Temperatura Inicial (°C)</label><input type="number" value={params.tempInicial} onChange={(e) => alterar("tempInicial", e.target.value)} className="w-full border rounded p-2 mt-1" /></div>
+              <div><label className="text-xs font-medium">Set Point 1 (°C)</label><input type="number" value={params.sp1} onChange={(e) => alterar("sp1", e.target.value)} className="w-full border rounded p-2 mt-1" /></div>
+              <div><label className="text-xs font-medium">Set Point 2 (°C)</label><input type="number" value={params.sp2} onChange={(e) => alterar("sp2", e.target.value)} className="w-full border rounded p-2 mt-1" /></div>
+              <div><label className="text-xs font-medium">Instante Mudança SP (s)</label><input type="number" value={params.instanteMudancaSp} onChange={(e) => alterar("instanteMudancaSp", e.target.value)} className="w-full border rounded p-2 mt-1" /></div>
+              <div><label className="text-xs font-medium">Perturbação (°C)</label><input type="number" value={params.perturbacao} onChange={(e) => alterar("perturbacao", e.target.value)} className="w-full border rounded p-2 mt-1" /></div>
+              <div><label className="text-xs font-medium">Instante Perturbação (s)</label><input type="number" value={params.instantePerturbacao} onChange={(e) => alterar("instantePerturbacao", e.target.value)} className="w-full border rounded p-2 mt-1" /></div>
+              <div><label className="text-xs font-medium">Ganho Proporcional (Kp)</label><input type="number" step="0.01" value={params.kp} onChange={(e) => alterar("kp", e.target.value)} className="w-full border rounded p-2 mt-1" /></div>
+              <div><label className="text-xs font-medium">Ganho Integral (Ki)</label><input type="number" step="0.001" value={params.ki} onChange={(e) => alterar("ki", e.target.value)} className="w-full border rounded p-2 mt-1" /></div>
+            </div>
+            <button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-lg font-medium">Executar Simulação</button>
+          </form>
+
+          {resultado && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <GraficoLinha titulo="1. Temperatura x Tempo" labels={resultado.tempos} dados={resultado.temperaturas} cor="#2563eb" unidade="°C" />
+              <GraficoLinha titulo="2. Set Point x Tempo" labels={resultado.tempos} dados={resultado.setpoints} cor="#16a34a" unidade="°C" />
+              <GraficoLinha titulo="3. Erro x Tempo" labels={resultado.tempos} dados={resultado.erros} cor="#dc2626" unidade="°C" />
+              <GraficoLinha titulo="4. Sinal de Controle x Tempo" labels={resultado.tempos} dados={resultado.sinaisControle} cor="#9333ea" unidade="V" />
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // Tela 4: Administração (Logs e Backups)
+    function TelaAdmin() {
+      const [msg, setMsg] = useState("");
+      const logs = [
+        { id: 1, usuario: "admin@unesp.br", ip: "192.168.0.10", acao: "Login no sistema", data: "2026-11-25 14:10:02" },
+        { id: 2, usuario: "user@unesp.br", ip: "192.168.0.14", acao: "Alterou setpoint para 45 °C", data: "2026-11-25 14:15:18" },
+      ];
+
+      const restaurar = async () => {
+        try {
+          await api.post("/admin/restore");
+          setMsg("Backup restaurado com sucesso no MySQL!");
+        } catch {
+          setMsg("Restauração simulada com sucesso (aguardando backend Laravel).");
+        }
+      };
+
+      return (
+        <div className="space-y-6">
+          <h1 className="text-2xl font-bold">Administração — Logs e Backups</h1>
+
+          <div className="bg-white p-5 rounded-xl shadow-sm border flex justify-between items-center">
+            <div>
+              <h2 className="font-semibold">Backup Automático Diário</h2>
+              <p className="text-sm text-slate-500">Última cópia salva: backup_ltr701.sql</p>
+            </div>
+            <button onClick={restaurar} className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg font-medium">
+              Restaurar Backup
+            </button>
+          </div>
+
+          {msg && <div className="p-3 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-lg text-sm">{msg}</div>}
+
+          <div className="bg-white p-5 rounded-xl shadow-sm border overflow-x-auto">
+            <h2 className="font-semibold mb-3">Logs de Acesso e Operação</h2>
+            <table className="w-full text-left text-sm">
+              <thead className="border-b text-slate-500">
+                <tr><th className="py-2">Data / Hora</th><th className="py-2">Usuário</th><th className="py-2">IP</th><th className="py-2">Ação</th></tr>
+              </thead>
+              <tbody>
+                {logs.map((l) => (
+                  <tr key={l.id} className="border-b last:border-0">
+                    <td className="py-2">{l.data}</td><td className="py-2">{l.usuario}</td><td className="py-2 font-mono text-xs">{l.ip}</td><td className="py-2">{l.acao}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      );
+    }
+
+    // Controle Principal de Navegação
+    function App() {
+      const [user, setUser] = useState(() => {
+        const salvo = localStorage.getItem("user");
+        return salvo ? JSON.parse(salvo) : null;
+      });
+      const [aba, setAba] = useState("dashboard");
+
+      const sair = () => {
+        localStorage.removeItem("user");
+        localStorage.removeItem("token");
+        setUser(null);
+      };
+
+      if (!user) return <TelaLogin onLogin={setUser} />;
+
+      return (
+        <div>
+          <nav className="bg-slate-900 text-white px-6 py-3 flex flex-wrap justify-between items-center gap-4">
+            <div className="flex items-center gap-4">
+              <span className="font-bold text-blue-400">LTR701 Web</span>
+              <button onClick={() => setAba("dashboard")} className={`text-sm ${aba === "dashboard" ? "underline font-semibold" : "text-slate-300"}`}>
+                Dashboard & Controle
+              </button>
+              <button onClick={() => setAba("simulacao")} className={`text-sm ${aba === "simulacao" ? "underline font-semibold" : "text-slate-300"}`}>
+                Sombra Digital
+              </button>
+              {user.role === "admin" && (
+                <button onClick={() => setAba("admin")} className={`text-sm text-amber-400 ${aba === "admin" ? "underline font-semibold" : ""}`}>
+                  Admin (Logs/Backup)
+                </button>
+              )}
+            </div>
+            <div className="flex items-center gap-3 text-sm">
+              <span className="text-slate-300">{user.name} ({user.role})</span>
+              <button onClick={sair} className="bg-slate-700 hover:bg-slate-600 px-3 py-1 rounded">Sair</button>
+            </div>
+          </nav>
+
+          <main className="max-w-6xl mx-auto p-6">
+            {aba === "dashboard" && <TelaDashboard />}
+            {aba === "simulacao" && <TelaSimulacao />}
+            {aba === "admin" && user.role === "admin" && <TelaAdmin />}
+          </main>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>
