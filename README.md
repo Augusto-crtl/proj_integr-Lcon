@@ -134,7 +134,15 @@ Defina um segredo forte apenas no `backend/.env`:
 MATLAB_LARAVEL_API_TOKEN=<segredo-forte-compartilhado-com-matlab>
 ```
 
-Inicie a aplicação com `php artisan serve --host 127.0.0.1 --port 8000` e abra `http://127.0.0.1:8000`. Cadastros criam usuários comuns. Para promover uma conta a administradora, execute `php artisan tinker` e rode no prompt:
+Inicie a aplicação aceitando conexões da rede local:
+
+```powershell
+php artisan serve --host 0.0.0.0 --port 8000
+```
+
+No computador que hospeda Laravel, abra `http://127.0.0.1:8000`. Para o MATLAB remoto, descubra o IPv4 desse computador com `ipconfig` e use esse endereço na URL da API. Se o Firewall do Windows perguntar, permita o PHP apenas em redes privadas; se necessário, crie uma regra de entrada TCP para a porta `8000`, restrita à rede privada. Os dois computadores precisam estar na mesma rede e a porta não deve ser encaminhada/exposta à Internet. `php artisan serve` é apenas para desenvolvimento e teste em rede confiável.
+
+Cadastros criam usuários comuns. Para promover uma conta a administradora, execute `php artisan tinker` e rode no prompt:
 
 ```php
 $user = App\Models\User::where('email', 'admin@example.com')->firstOrFail();
@@ -153,12 +161,12 @@ Os scripts em `code_base/` requerem Python e a biblioteca `requests`; são exemp
 Quando o backend Laravel e o dispositivo NI estiverem configurados, basta uma sessão MATLAB:
 
 ```matlab
-setenv("MATLAB_LARAVEL_API_URL", "http://127.0.0.1:8000/api")
+setenv("MATLAB_LARAVEL_API_URL", "http://192.168.1.50:8000/api")
 setenv("MATLAB_LARAVEL_API_TOKEN", "<token-de-servico>")
 temperature_client_node
 ```
 
-Use o mesmo segredo de `MATLAB_LARAVEL_API_TOKEN` configurado no `backend/.env`, sem salvá-lo no repositório. O script mantém o DAQ no loop principal e executa as chamadas Laravel em um background worker. O comando de ativação deve ser enviado pelo dashboard autenticado; o backend autoriza a operação e a enfileira para MATLAB.
+Substitua `192.168.1.50` pelo IPv4 do computador que executa Laravel. Não use `127.0.0.1` aqui: esse endereço apontaria para o próprio computador MATLAB. Configure o mesmo segredo forte em `MATLAB_LARAVEL_API_TOKEN` no `backend/.env` e na sessão MATLAB; não o salve no repositório. A URL agora é obrigatória para evitar que o cliente tente conectar silenciosamente ao computador errado. O script mantém o DAQ no loop principal e executa as chamadas Laravel em um background worker. MATLAB faz requisições HTTP diretamente, portanto essa comunicação não depende de CORS. O comando de ativação deve ser enviado pelo dashboard autenticado; o backend autoriza a operação e a enfileira para MATLAB.
 
 ## Escopo deste repositório hoje
 

@@ -3,11 +3,10 @@ clc
 
 apiBaseUrl = getenv("MATLAB_LARAVEL_API_URL");
 if isempty(apiBaseUrl)
-    apiBaseUrl = "http://127.0.0.1:8000/api";
-else
-    apiBaseUrl = string(strtrim(apiBaseUrl));
+    error("temperature_client_node:MissingApiUrl", ...
+        "Set MATLAB_LARAVEL_API_URL to the reachable Laravel server URL.");
 end
-apiBaseUrl = strip(apiBaseUrl, "/");
+apiBaseUrl = strip(string(strtrim(apiBaseUrl)), "/");
 
 apiToken = strtrim(getenv("MATLAB_LARAVEL_API_TOKEN"));
 if isempty(apiToken)
