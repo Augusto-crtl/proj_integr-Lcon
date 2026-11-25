@@ -161,8 +161,10 @@
       const [horas, setHoras] = useState([]);
       const [temps, setTemps] = useState([]);
       const [setpoint, setSetpoint] = useState(45);
+      const [appliedSetpoint, setAppliedSetpoint] = useState(null);
       const [ativo, setAtivo] = useState(false);
       const [status, setStatus] = useState("Conectando...");
+      const [commandMessage, setCommandMessage] = useState("");
 
       useEffect(() => {
         const atualizar = async () => {
@@ -170,9 +172,18 @@
             const { data } = await api.get("/readings/history?limit=60");
             setHoras(data.map((d) => new Date(d.recorded_at).toLocaleTimeString()));
             setTemps(data.map((d) => Number(d.variables?.temp ?? 0)));
+            const latestReading = data.at(-1);
+            const reportedStatus = latestReading?.variables?.system_status;
+            if (reportedStatus === "ON" || reportedStatus === "OFF") {
+              setAtivo(reportedStatus === "ON");
+            }
+            const reportedSetpoint = Number(latestReading?.variables?.setpoint);
+            if (Number.isFinite(reportedSetpoint)) setAppliedSetpoint(reportedSetpoint);
             setStatus("Online (Laravel)");
           } catch {
             setStatus("Modo Simulado (Backend Offline)");
+            setAtivo(false);
+            setAppliedSetpoint(null);
             setHoras((prev) => [...prev.slice(-39), new Date().toLocaleTimeString()]);
             setTemps((prev) => {
               const ultima = prev.at(-1) ?? 27;
@@ -190,13 +201,22 @@
 
       const enviarSetpoint = async (e) => {
         e.preventDefault();
-        try { await api.post("/commands/add", { name: "setpoint", value: Number(setpoint) }); } catch {}
+        try {
+          await api.post("/commands/add", { name: "setpoint", value: Number(setpoint) });
+          setCommandMessage("Setpoint command queued; waiting for the controller reading.");
+        } catch {
+          setCommandMessage("Could not send the setpoint command to Laravel.");
+        }
       };
 
       const alternarFlag = async () => {
         const novo = !ativo;
-        setAtivo(novo);
-        try { await api.post("/commands/add", { name: "flag", value: novo ? 1 : 0 }); } catch {}
+        try {
+          await api.post("/commands/add", { name: "flag", value: novo ? 1 : 0 });
+          setCommandMessage("Controller command queued; waiting for the controller reading.");
+        } catch {
+          setCommandMessage("Could not send the controller command to Laravel.");
+        }
       };
 
       const stats = calcularEstatisticas(temps);
@@ -228,8 +248,11 @@
               <button onClick={alternarFlag} className={`w-full py-2.5 rounded-lg text-white font-semibold ${ativo ? "bg-red-600" : "bg-emerald-600"}`}>
                 {ativo ? "Desligar Controle (Flag = 0)" : "Ligar Controle (Flag = 1)"}
               </button>
+              <p className="text-xs text-slate-500 mt-2">Setpoint aplicado: {appliedSetpoint ?? "--"} °C</p>
             </div>
           </div>
+
+          {commandMessage && <p role="status" className="text-sm text-slate-600">{commandMessage}</p>}
 
           <GraficoLinha titulo="Temperatura em Tempo Real / Histórico" labels={horas} dados={temps} cor="#2563eb" unidade="°C" />
 
