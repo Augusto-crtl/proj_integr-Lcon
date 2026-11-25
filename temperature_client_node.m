@@ -22,11 +22,17 @@ addoutput(d, "Dev3", "ao1", "Voltage");
 d.Rate = 100;
 write(d, [0 0]);
 
-readingQueue = parallel.pool.PollableDataQueue;
+readingQueueReady = parallel.pool.PollableDataQueue;
 stateQueue = parallel.pool.PollableDataQueue;
 workerFuture = parfeval(backgroundPool, @laravelApiWorker, 0, ...
-    readingQueue, stateQueue, apiBaseUrl, apiToken);
+    readingQueueReady, stateQueue, apiBaseUrl, apiToken);
 cleanupObj = onCleanup(@() cleanupController(d, workerFuture));
+readingQueue = poll(readingQueueReady, 5);
+if isempty(readingQueue)
+    assertWorkerRunning(workerFuture);
+    error("temperature_client_node:ApiWorkerNotReady", ...
+        "The Laravel API background worker did not initialize its reading queue.");
+end
 
 systemStatus = "OFF";
 setpoint = 30.0;
@@ -70,14 +76,7 @@ while true
     end
 
     if strcmp(workerFuture.State, "finished")
-        workerError = workerFuture.Error;
-        if isempty(workerError)
-            error("temperature_client_node:ApiWorkerStopped", ...
-                "The Laravel API background worker stopped without reporting an exception.");
-        end
-        error("temperature_client_node:ApiWorkerStopped", ...
-            "The Laravel API background worker stopped unexpectedly:%s%s", ...
-            newline, getReport(workerError, "extended", "hyperlinks", "off"));
+        assertWorkerRunning(workerFuture);
     end
 
     if toc(lastWorkerHeartbeat) >= workerHeartbeatTimeout
@@ -124,7 +123,23 @@ while true
 end
 end
 
-function laravelApiWorker(readingQueue, stateQueue, apiBaseUrl, apiToken)
+function assertWorkerRunning(workerFuture)
+if strcmp(workerFuture.State, "finished")
+    workerError = workerFuture.Error;
+    if isempty(workerError)
+        error("temperature_client_node:ApiWorkerStopped", ...
+            "The Laravel API background worker stopped without reporting an exception.");
+    end
+    error("temperature_client_node:ApiWorkerStopped", ...
+        "The Laravel API background worker stopped unexpectedly:%s%s", ...
+        newline, getReport(workerError, "extended", "hyperlinks", "off"));
+end
+end
+
+function laravelApiWorker(readingQueueReady, stateQueue, apiBaseUrl, apiToken)
+readingQueue = parallel.pool.PollableDataQueue;
+send(readingQueueReady, readingQueue);
+
 apiOptions = weboptions( ...
     "MediaType", "application/json", ...
     "Timeout", 1, ...
