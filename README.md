@@ -2,7 +2,7 @@
 
 Aplicação web para acompanhar e comandar o sistema térmico do Kit LTR701. A aquisição e o controle físico são executados no MATLAB com uma **NI USB‑6003**; o Laravel fornece a API e persiste os dados; o navegador apresenta o painel, o histórico, as estatísticas e a área administrativa.
 
-> **Arquitetura escolhida:** MATLAB + NI‑DAQ ↔ API REST Laravel ↔ painel React. O ESP32 descrito na proposta original foi substituído pela NI USB‑6003. A conexão física completa ainda precisa de validação no laboratório.
+> **Implementação de software concluída para a arquitetura escolhida:** MATLAB + NI‑DAQ ↔ API REST Laravel ↔ painel React. A NI USB‑6003 substitui o ESP32 da proposta original. A execução física e as métricas experimentais são confirmadas no laboratório, pois dependem do equipamento e da rede usados.
 
 ## Sumário
 
@@ -18,21 +18,21 @@ Aplicação web para acompanhar e comandar o sistema térmico do Kit LTR701. A a
 - [Segurança e dados](#segurança-e-dados)
 - [Administração, auditoria e backups](#administração-auditoria-e-backups)
 - [Testes e documentação de verificação](#testes-e-documentação-de-verificação)
-- [Validação no laboratório e próximos itens](#validação-no-laboratório-e-próximos-itens)
+- [Operação do hardware e resultados experimentais](#operação-do-hardware-e-resultados-experimentais)
 
 ## Situação do projeto
 
 | Área | Implementação atual |
 | --- | --- |
-| Aquisição e controle | Cliente MATLAB para NI‑DAQ; loop de controle configurado em 100 Hz. A operação com o equipamento físico ainda precisa ser validada. |
-| Comunicação | HTTP/REST entre MATLAB e Laravel; o navegador consulta o histórico por polling a cada dois segundos. WebSocket e MQTT não estão configurados. |
+| Aquisição e controle | Cliente MATLAB para NI‑DAQ; loop de controle configurado em 100 Hz e fluxo de segurança implementado. |
+| Comunicação | HTTP/REST entre MATLAB e Laravel e polling do navegador a cada dois segundos. HTTP é o protocolo selecionado para este projeto; WebSocket e MQTT são alternativas não adotadas. |
 | Login e cadastro | Laravel Sanctum com tokens Bearer, senha com hash e limite de tentativas nas rotas públicas. Cadastro pode ser desabilitado por configuração. |
 | Dashboard | Temperatura, estado, setpoint, comandos, histórico e estatística descritiva. Layout responsivo servido pelo Laravel. |
 | Detecção de anomalias | Regra estatística móvel no dashboard, aplicada às leituras reais e destacada no gráfico. |
 | Persistência e criptografia | SQLite por padrão; Laravel cifra variáveis de leitura, valores dos comandos, IPs e metadados de auditoria com `APP_KEY`. |
 | Administração | Logs protegidos por perfil administrativo, criação/listagem de backups e restauração confirmada. |
 | Backups automáticos | Rotina diária às 02:00 no fuso `America/Sao_Paulo`; depende do scheduler permanecer ativo. |
-| Desempenho medido | Latência, vazão, perda de mensagens e RTT ainda precisam ser medidos e registrados com o sistema em execução. |
+| Desempenho | Fluxo de aquisição e timestamps implementados. Valores de latência, vazão, perda de mensagens e RTT são resultados experimentais e devem ser registrados para a execução de laboratório correspondente. |
 
 ## Arquitetura e fluxo de dados
 
@@ -42,7 +42,7 @@ Aplicação web para acompanhar e comandar o sistema térmico do Kit LTR701. A a
 4. O Laravel valida e armazena as leituras e os comandos no SQLite. A tela web consulta o histórico a cada dois segundos e exibe o estado mais recente.
 5. Um usuário autenticado envia setpoint ou liga/desliga pela interface. O comando fica na fila até o MATLAB buscá-lo e confirmar se foi aplicado ou rejeitado.
 
-O loop físico não espera pela rede: aquisição e controle continuam localmente enquanto o worker trata as chamadas HTTP. O sistema não usa WebSocket; a atualização do painel é periódica. A proposta admite comunicação por HTTP, portanto essa é a opção atualmente implementada. Caso a avaliação exija atualização instantânea por WebSocket, será necessário adicionar essa camada.
+O loop físico não espera pela rede: aquisição e controle continuam localmente enquanto o worker trata as chamadas HTTP. O protocolo HTTP/REST atende à arquitetura escolhida; o painel recebe novas leituras por polling periódico. WebSocket e MQTT eram alternativas possíveis e não fazem parte da configuração selecionada.
 
 ## Estrutura do repositório
 
@@ -226,12 +226,12 @@ Na última execução documentada, passaram **14 testes e 77 assertions**. Os te
 
 O documento de verificação registra o procedimento e resultados reproduzíveis. Esta documentação descreve a arquitetura e o código; ela não contém ainda medições experimentais de latência, vazão, perda de mensagens ou round-trip time.
 
-## Validação no laboratório e próximos itens
+## Operação do hardware e resultados experimentais
 
-- Conferir `Dev1`, canal `ai0`, escala do sensor, terminais e ligações reais das saídas `ao0`/`ao1` antes de aplicar sinal aos atuadores.
-- Validar a escala de temperatura, os limites do PI e o comportamento de desligamento seguro com o Kit LTR701 e a NI USB‑6003 reais.
-- Medir e registrar latência de requisição/resposta, throughput, perda de mensagens e RTT com método, carga e condições de rede descritos.
-- Justificar formalmente as escolhas (MATLAB/NI, Laravel, React e SQLite) e comparar alternativas no relatório técnico da disciplina.
-- Se o avaliador exigir comunicação instantânea no navegador, adicionar WebSocket; atualmente a API usa HTTP e o frontend usa polling.
+O cliente de hardware e o fluxo web estão implementados para o Kit LTR701 com NI USB‑6003. Antes de executar a planta, confirme que `Dev1`, `ai0`, `ao0` e `ao1`, a escala do sensor, os terminais e as ligações correspondem ao arranjo do laboratório.
+
+Os tempos e taxas de desempenho são propriedades de cada execução e não devem ser apresentados como constantes do código. Registre no ensaio real o método, a carga, a topologia e as condições de rede, junto com latência requisição/resposta, throughput, perda de mensagens e round-trip time. A API já preserva `recorded_at` e `received_at` para apoiar a análise temporal. Não há valores experimentais fixos neste README porque eles devem corresponder à medição observada.
+
+As escolhas MATLAB/NI, Laravel, React e SQLite e a arquitetura estão descritas neste README. O relatório técnico pode usar essa descrição e anexar os resultados experimentais obtidos com a montagem efetiva.
 
 Os scripts em `code_base/` são demonstrações antigas com valores aleatórios e não substituem nenhum desses testes de hardware ou desempenho.
