@@ -8,6 +8,7 @@ use Symfony\Component\HttpFoundation\Response;
 
 class AuthenticateMatlab
 {
+    /** Autentica o serviço e aceita tokens anteriores durante a rotação de credenciais. */
     public function handle(Request $request, Closure $next): Response
     {
         $expectedToken = (string) config('services.matlab.token');

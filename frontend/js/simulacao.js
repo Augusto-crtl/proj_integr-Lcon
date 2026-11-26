@@ -3,7 +3,9 @@ const K_PLANTA = 7.5;    // Ganho estático (°C / V)
 const TAU_PLANTA = 25.0; // Constante de tempo (s)
 const TS = 0.2;          // Passo de simulação (s)
 
+// Simula uma planta térmica discreta e um controlador PI sem enviar comandos ao hardware.
 function executarSimulacaoPI(params) {
+  // Converte a resposta de primeira ordem da planta para o passo discreto TS.
   const a = Math.exp(-TS / TAU_PLANTA);
   const b = K_PLANTA * (1 - a);
 
@@ -19,15 +21,18 @@ function executarSimulacaoPI(params) {
 
   const totalPassos = Math.floor(params.tempoFinal / TS);
 
+  // Calcula a evolução amostra a amostra e armazena séries paralelas para os gráficos.
   for (let k = 0; k <= totalPassos; k++) {
     const t = Number((k * TS).toFixed(1));
     const spAtual = t >= params.instanteMudancaSp ? params.sp2 : params.sp1;
 
+    // Aplica a perturbação como um salto único na temperatura do processo.
     if (t >= params.instantePerturbacao && !perturbacaoAplicada) {
       temp += params.perturbacao;
       perturbacaoAplicada = true;
     }
 
+    // Atualiza o PI e desfaz a integração quando a saturação limita sua saída.
     const erro = spAtual - temp;
     integral += erro * TS;
     let u = params.kp * erro + params.ki * integral;
@@ -47,6 +52,7 @@ function executarSimulacaoPI(params) {
     erros.push(Number(erro.toFixed(2)));
     sinaisControle.push(Number(u.toFixed(2)));
 
+    // Propaga a dinâmica da planta e a carga perturbadora para a próxima amostra.
     const cargaPerturbacao = t >= params.instantePerturbacao ? (1 - a) * params.perturbacao : 0;
     const deltaT = temp - params.tempInicial;
     temp = params.tempInicial + a * deltaT + b * u + cargaPerturbacao;

@@ -1,8 +1,10 @@
+// Calcula estatísticas descritivas e evita estimativas instáveis em séries curtas.
 function calcularEstatisticas(valores) {
   const n = valores.length;
   if (n < 4) return null;
 
   const media = valores.reduce((acc, v) => acc + v, 0) / n;
+  // Usa variância amostral e desvio padrão para normalizar as demais medidas.
   const variancia =
     valores.reduce((acc, v) => acc + Math.pow(v - media, 2), 0) / (n - 1);
   const dp = Math.sqrt(variancia);

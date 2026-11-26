@@ -1,3 +1,4 @@
+// Centraliza chamadas REST e anexa a credencial da sessão a cada requisição.
 const api = axios.create({
   baseURL: "/api",
   timeout: 5000,

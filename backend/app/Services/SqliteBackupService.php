@@ -20,6 +20,7 @@ class SqliteBackupService // Implementa cópias e restaurações do banco SQLite
 
     public function create(): array // Cria um backup consistente e devolve seus metadados.
     { // Inicia a criação do backup.
+        // Verifica driver e arquivo para não copiar bancos não suportados ou voláteis.
         $connection = DB::connection(); // Obtém a conexão de banco atualmente ativa.
         if ($connection->getDriverName() !== 'sqlite') { // Verifica se a conexão usa SQLite.
             throw new RuntimeException('O backup automático está configurado somente para SQLite.'); // Interrompe para evitar cópia inconsistente de outro banco.
@@ -34,6 +35,7 @@ class SqliteBackupService // Implementa cópias e restaurações do banco SQLite
             throw new RuntimeException('Não é possível criar um backup durante uma transação ativa.'); // Solicita uma nova tentativa fora da transação.
         } // Finaliza a validação de transação.
 
+        // Consolida WAL antes da cópia e publica o resultado somente após validá-lo.
         $connection->getPdo()->query('PRAGMA wal_checkpoint(FULL)'); // Consolida páginas WAL no arquivo principal antes da cópia.
 
         File::ensureDirectoryExists($this->directory); // Cria o diretório privado se ainda não existir.
@@ -70,6 +72,7 @@ class SqliteBackupService // Implementa cópias e restaurações do banco SQLite
 
     public function restore(string $name): array // Restaura somente um arquivo previamente listado pelo nome.
     { // Inicia a restauração do backup selecionado.
+        // Aceita somente nomes gerados pelo serviço e caminhos dentro da pasta privada.
         $connection = DB::connection(); // Obtém a conexão de banco atualmente ativa.
         if ($connection->getDriverName() !== 'sqlite') { // Verifica se a conexão usa SQLite.
             throw new RuntimeException('A restauração automática está configurada somente para SQLite.'); // Impede substituir bancos de outros drivers por engano.
@@ -89,6 +92,7 @@ class SqliteBackupService // Implementa cópias e restaurações do banco SQLite
             throw new RuntimeException('O arquivo do banco SQLite não está disponível para restauração.'); // Evita uma substituição sem destino válido.
         } // Finaliza a validação do banco de destino.
 
+        // Protege o estado atual, fecha a conexão e troca o banco por meio de arquivo temporário.
         $safetyBackup = $this->create(); // Salva o estado atual para permitir recuperação após a operação.
         DB::purge(); // Fecha a conexão antes de substituir o arquivo no Windows.
         $temporary = $databasePath.'.restore-'.Str::lower(Str::random(8)); // Prepara arquivo temporário no mesmo volume do banco.
@@ -120,6 +124,7 @@ class SqliteBackupService // Implementa cópias e restaurações do banco SQLite
 
     private function prune(): void // Aplica o limite de retenção aos arquivos mais antigos.
     { // Inicia a limpeza de retenção.
+        // Mantém os 30 backups mais recentes e exclui apenas os arquivos excedentes.
         $files = collect(File::files($this->directory)) // Lê os arquivos armazenados no diretório de backups.
             ->filter(fn ($file): bool => $file->getExtension() === 'sqlite') // Considera apenas os backups SQLite definitivos.
             ->sortByDesc(fn ($file): int => $file->getMTime()) // Mantém os backups mais novos primeiro.

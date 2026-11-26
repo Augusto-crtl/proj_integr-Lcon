@@ -1,4 +1,5 @@
-﻿function temperature_client_node()
+﻿% Inicializa a DAQ e separa o controle de alta frequência das chamadas HTTP.
+function temperature_client_node()
 clc
 
 apiBaseUrl = getenv("MATLAB_LARAVEL_API_URL");
@@ -14,6 +15,7 @@ if isempty(apiToken)
         "Set MATLAB_LARAVEL_API_TOKEN before starting the controller.");
 end
 
+% Configura canais físicos e zera as saídas antes de habilitar o controle.
 d = daq("ni");
 ch1 = addinput(d, "Dev1", "ai0", "voltage");
 ch1.TerminalConfig = "SingleEnded";
@@ -22,6 +24,7 @@ addoutput(d, "Dev1", "ao1", "Voltage");
 d.Rate = 100;
 write(d, [0 0]);
 
+% Usa filas e worker para que a comunicação com Laravel não bloqueie o loop DAQ.
 readingQueueReady = parallel.pool.PollableDataQueue;
 stateQueue = parallel.pool.PollableDataQueue;
 workerFuture = parfeval(backgroundPool, @laravelApiWorker, 0, ...
@@ -41,6 +44,7 @@ workerHeartbeatTimeout = 6.0; % Mantém a saída segura por mais tempo durante r
 lastTelemetrySent = tic;
 lastWorkerHeartbeat = tic;
 
+% Define período, filtro digital e ganhos usados pelo controlador PI local.
 Ts = 1/d.Rate;
 tau = 0.012732395447352;
 a0 = 1.0 + (2.0*tau/Ts);
@@ -88,6 +92,7 @@ while true
         systemStatus = "OFF";
     end
 
+    % Mede e filtra a temperatura, calcula a ação PI e atualiza as saídas físicas.
     measurement = read(d);  
     temp_C = 10.0 * measurement.Dev1_ai0;
     xf1 = xf0;
@@ -141,6 +146,7 @@ if strcmp(workerFuture.State, "finished")
 end
 end
 
+% Consulta comandos e publica telemetria fora do ciclo físico de 100 Hz.
 function laravelApiWorker(readingQueueReady, stateQueue, apiBaseUrl, apiToken)
 readingQueue = parallel.pool.PollableDataQueue;
 send(readingQueueReady, readingQueue);
@@ -185,6 +191,7 @@ while true
     end
 
     commandsDrained = false;
+    % Processa comandos pendentes e exige nova ativação após falha ou inicialização.
     if toc(lastCommandPoll) >= commandPollInterval
         lastCommandPoll = tic;
         try
@@ -275,6 +282,7 @@ while true
         end
     end
 
+    % Publica a amostra mais recente com timestamp UTC e usuário da sessão de controle.
     if hasReading && toc(lastReadingPost) >= readingPostInterval
         lastReadingPost = tic;
         try
@@ -319,6 +327,7 @@ while true
     end
 end
 
+    % Desliga o controle na falha da API e comunica o erro ao loop DAQ.
     function markApiUnavailable(message, exception)
         systemStatus = "OFF"; % Desliga o controlador após uma falha de API.
         send(stateQueue, struct("log", string(message) + ": " + exception.message)); % Envia o erro ao loop principal.
@@ -326,6 +335,7 @@ end
         publishState(); % Propaga o estado OFF ao controlador.
     end
 
+    % Propaga estado e setpoint atuais do worker para o controlador físico.
     function publishState()
         send(stateQueue, struct( ...
             "status", char(systemStatus), ...
@@ -333,6 +343,7 @@ end
     end
 end
 
+% Ao encerrar, tenta zerar as saídas e interromper o worker em segundo plano.
 function cleanupController(daqObj, workerFuture)
 fprintf('\nStopping controller and Laravel API worker...\n');
 try

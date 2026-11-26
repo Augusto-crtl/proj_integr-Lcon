@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\DB;
 
 class CommandController extends Controller
 {
+    /** Valida limites, enfileira a solicitação do usuário e audita sua origem. */
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -45,6 +46,7 @@ class CommandController extends Controller
         return response()->json(['id' => $command->id, 'status' => $command->status], 201);
     }
 
+    /** Entrega ao MATLAB comandos pendentes em ordem e inclui o usuário que os iniciou. */
     public function pending(): JsonResponse
     {
         $commands = ControlCommand::query()
@@ -62,6 +64,7 @@ class CommandController extends Controller
         return response()->json(['commands' => $commands]);
     }
 
+    /** Confirma o comando em transação para impedir aplicação duplicada concorrente. */
     public function acknowledge(Request $request): JsonResponse
     {
         $validated = $request->validate([

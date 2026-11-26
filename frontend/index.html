@@ -25,6 +25,7 @@
     const { useState, useEffect, useRef } = React;
 
     // Componente reutilizável de Gráfico (Chart.js)
+    // Reutiliza uma instância Chart.js e atualiza séries e marcadores de anomalia sem recriar o canvas.
     function GraficoLinha({ titulo, labels, dados, cor, unidade, indicesAnomalia = new Set() }) { // Aceita os índices sinalizados para destacá-los no gráfico.
       const canvasRef = useRef(null);
       const chartRef = useRef(null);
@@ -85,6 +86,7 @@
     }
 
     // Tela 1: Login e Cadastro
+    // Alterna cadastro e login, guarda token e perfil após resposta válida da API.
     function TelaLogin({ onLogin }) {
       const [cadastro, setCadastro] = useState(false);
       const [nome, setNome] = useState("");
@@ -150,6 +152,7 @@
     }
 
     // Tela 2: Dashboard, Controle Remoto e Estatística
+    // Consulta telemetria periodicamente e separa comandos reais da simulação local opcional.
     function TelaDashboard() {
       const [horas, setHoras] = useState([]);
       const [temps, setTemps] = useState([]);
@@ -365,6 +368,7 @@
     }
 
     // Tela 3: Sombra Digital (Simulação LCON-I com 4 gráficos)
+    // Executa a planta e o PI no navegador para comparar setpoints e perturbações sem acesso à DAQ.
     function TelaSimulacao() {
       const [params, setParams] = useState({
         tempoFinal: 120, tempInicial: 25, sp1: 45, perturbacao: -5,
@@ -426,6 +430,7 @@
     }
 
     // Tela 4: Administração (Logs e Backups)
+    // Reúne consulta de auditoria e operações de backup disponíveis somente ao perfil administrador.
     function TelaAdmin() {
       const [msg, setMsg] = useState(""); // Armazena a mensagem exibida ao administrador.
       const [msgError, setMsgError] = useState(false); // Indica se a mensagem atual descreve uma falha.
@@ -514,6 +519,7 @@
       ); // Finaliza a renderização da tela.
     } // Finaliza o componente administrativo.
     // Controle Principal de Navegação
+    // Restaura a sessão e escolhe as telas conforme o estado autenticado e o perfil recebido.
     function App() {
       const [user, setUser] = useState(() => {
         const salvo = localStorage.getItem("user");

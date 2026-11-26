@@ -10,6 +10,7 @@ use Illuminate\Http\Request;
 
 class AdminController extends Controller
 {
+    /** Carrega eventos recentes e inclui somente o resumo do usuário relacionado. */
     public function logs(): JsonResponse
     {
         $logs = AuditLog::query()
@@ -33,6 +34,7 @@ class AdminController extends Controller
         return response()->json(['logs' => $logs]);
     }
 
+    /** Exige confirmação, registra o resultado e converte falhas operacionais em HTTP 422. */
     public function restore(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -50,6 +52,7 @@ class AdminController extends Controller
         }
     }
 
+    /** Lista metadados sem revelar caminhos privados do servidor. */
     public function backups(): JsonResponse
     {
         try {
@@ -59,6 +62,7 @@ class AdminController extends Controller
         }
     }
 
+    /** Cria backup manual e registra sucesso ou falha na auditoria. */
     public function createBackup(Request $request): JsonResponse
     {
         try {

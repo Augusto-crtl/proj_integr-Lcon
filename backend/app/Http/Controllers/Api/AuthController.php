@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Hash;
 
 class AuthController extends Controller
 {
+    /** Valida, cria uma conta comum, registra auditoria e emite token Sanctum. */
     public function register(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -25,6 +26,7 @@ class AuthController extends Controller
         return $this->issueToken($user, 201);
     }
 
+    /** Confere a senha, registra o resultado da autenticação e emite a sessão. */
     public function login(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -55,6 +57,7 @@ class AuthController extends Controller
         return response()->json(['user' => $this->userPayload($request->user())]);
     }
 
+    /** Revoga o token atual para encerrar somente a sessão autenticada nesta chamada. */
     public function logout(Request $request): JsonResponse
     {
         $request->user()->currentAccessToken()?->delete();
@@ -63,6 +66,7 @@ class AuthController extends Controller
         return response()->json(['message' => 'Logged out.']);
     }
 
+    /** Monta a resposta comum de autenticação para cadastro e login. */
     private function issueToken(User $user, int $status = 200): JsonResponse
     {
         return response()->json([
@@ -71,6 +75,7 @@ class AuthController extends Controller
         ], $status);
     }
 
+    /** Expõe apenas os campos de perfil necessários ao cliente. */
     private function userPayload(User $user): array
     {
         return [

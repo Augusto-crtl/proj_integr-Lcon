@@ -9,6 +9,7 @@ use Illuminate\Http\Request;
 
 class ReadingController extends Controller
 {
+    /** Valida telemetria, separa o vínculo do usuário e persiste a leitura recebida. */
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -28,6 +29,7 @@ class ReadingController extends Controller
         return response()->json(['id' => $reading->id], 201);
     }
 
+    /** Retorna uma janela limitada de leituras em ordem temporal para o painel. */
     public function history(Request $request): JsonResponse
     {
         $validated = $request->validate([
