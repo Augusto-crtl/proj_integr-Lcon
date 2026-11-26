@@ -14,4 +14,4 @@ Artisan::command('backup:sqlite', function (SqliteBackupService $backups) { // D
     $this->info('Backup criado: '.$backup['name']); // Exibe o identificador do arquivo criado no terminal.
 })->purpose('Cria um backup do banco SQLite configurado'); // Documenta o propósito do comando Artisan.
 
-Schedule::command('backup:sqlite')->daily()->at('02:00')->withoutOverlapping(); // Agenda backup diário às 2h e evita execuções simultâneas.
+Schedule::command('backup:sqlite')->daily()->at('02:00')->timezone('America/Sao_Paulo')->withoutOverlapping(); // Agenda backup às 2h de Brasília e evita execuções simultâneas.

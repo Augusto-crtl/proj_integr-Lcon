@@ -130,7 +130,7 @@ Se o MATLAB estiver em outro computador, substitua `127.0.0.1` pelo endereço pr
 
 ## Administração e backups
 
-O backup automático SQLite é agendado diariamente às 02:00, com retenção máxima de 30 cópias, no diretório privado `backend/storage/app/private/backups`. O scheduler precisa estar ativo. Em desenvolvimento, execute `php artisan schedule:work` em outro terminal, a partir de `backend/`. A restauração pela API requer confirmação e cria uma cópia do banco atual antes da substituição. Essas operações exigem SQLite em arquivo persistente; não funcionam com banco em memória ou outros drivers.
+O backup automático SQLite é agendado diariamente às 02:00 no fuso `America/Sao_Paulo`, com retenção máxima de 30 cópias, no diretório privado `backend/storage/app/private/backups`. O scheduler precisa estar ativo. Em desenvolvimento, execute `php artisan schedule:work` em outro terminal, a partir de `backend/`, e confira `php artisan schedule:list` para validar a próxima execução. A restauração pela API requer confirmação e cria uma cópia do banco atual antes da substituição; como ela repõe o snapshot inteiro, eventos de auditoria posteriores a esse snapshot também são substituídos. Essas operações exigem SQLite em arquivo persistente; não funcionam com banco em memória ou outros drivers. O roteiro de verificações e resultados automatizados está em [docs/verificacao-logs-backups.md](docs/verificacao-logs-backups.md).
 
 ## Escopo e limitações atuais
 
