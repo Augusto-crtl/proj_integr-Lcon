@@ -42,6 +42,7 @@ class ReadingController extends Controller
                 'id' => $reading->id,
                 'source' => $reading->source,
                 'recorded_at' => $reading->recorded_at->toISOString(),
+                'received_at' => $reading->created_at->toISOString(), // Informa quando o Laravel recebeu a leitura, sem depender do relógio MATLAB.
                 'variables' => $reading->variables,
             ]);
 

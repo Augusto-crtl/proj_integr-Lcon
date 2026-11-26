@@ -43,6 +43,7 @@ class LaravelIntegrationApiTest extends TestCase
         $this->getJson('/api/readings/history?limit=60')
             ->assertOk()
             ->assertJsonPath('0.source', 'matlab-ni-usb-6003')
+            ->assertJsonPath('0.received_at', now()->startOfSecond()->toISOString()) // Confirma que o histórico informa o horário de recebimento no servidor.
             ->assertJsonPath('0.variables.temp', 25.4)
             ->assertJsonPath('0.variables.system_status', 'OFF');
     }

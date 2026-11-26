@@ -29,6 +29,7 @@
       const canvasRef = useRef(null);
       const chartRef = useRef(null);
 
+
       useEffect(() => {
         if (!canvasRef.current) return;
         if (chartRef.current) {
@@ -152,34 +153,64 @@
       const [setpoint, setSetpoint] = useState(45);
       const [appliedSetpoint, setAppliedSetpoint] = useState(null);
       const [ativo, setAtivo] = useState(false);
-      const [status, setStatus] = useState("Conectando...");
+      const [status, setStatus] = useState("Desconectado");
+      const [simulacaoAtiva, setSimulacaoAtiva] = useState(false); // Controla a simulação manualmente, sem depender da conexão detectada.
+      const controleSimuladoRef = useRef({ ligado: ativo, alvo: appliedSetpoint ?? setpoint }); // Mantém a entrada mais recente do PI para a planta simulada.
+      controleSimuladoRef.current = { ligado: ativo, alvo: appliedSetpoint ?? setpoint }; // Atualiza o estado local sem reiniciar a consulta da API.
       const [commandMessage, setCommandMessage] = useState(""); // Armazena mensagens de retorno das ações do controlador.
       const latestReadingId = useRef(0);
       const pendingCommand = useRef(null);
+      const temperaturaSimulada = useRef(29); // Inicia a simulação próxima de vinte e nove graus Celsius.
+      const leiturasSimuladas = useRef([]); // Armazena somente no navegador o histórico simulado exibido.
+      const gerarLeituraSimulada = () => { // Gera uma amostra local quando o usuário ativa a simulação.
+        const agora = new Date(); // Marca o horário da amostra simulada.
+        const alvoSimulado = controleSimuladoRef.current.ligado ? controleSimuladoRef.current.alvo : 29; // Usa o setpoint quando o controlador simulado está ligado.
+        const erroSimulado = alvoSimulado - temperaturaSimulada.current; // Calcula o erro entre o alvo e a temperatura local.
+        temperaturaSimulada.current += erroSimulado * 0.08 + (Math.random() - 0.5) * 0.02; // Simula resposta térmica gradual com pequeno ruído.
+        leiturasSimuladas.current = [...leiturasSimuladas.current, { hora: agora.toLocaleTimeString(), temperatura: Number(temperaturaSimulada.current.toFixed(3)) }].slice(-60); // Mantém as sessenta amostras locais mais recentes.
+        setHoras(leiturasSimuladas.current.map((leitura) => leitura.hora)); // Atualiza o eixo de tempo com horários simulados.
+        setTemps(leiturasSimuladas.current.map((leitura) => leitura.temperatura)); // Atualiza o gráfico com temperaturas simuladas.
+      }; // Finaliza a geração de uma amostra simulada.
+
 
       useEffect(() => {
         const atualizar = async () => {
           try {
             const { data } = await api.get("/readings/history?limit=60");
-            if (data.length === 0) {
-              setStatus("Aguardando leituras do MATLAB"); // Informa em português que ainda não há leituras disponíveis.
-              return;
+            if (data.length === 0) { // Trata a ausência de leituras reais sem depender do estado da conexão.
+              if (simulacaoAtiva) { // Executa a planta local somente se a simulação estiver ativa.
+                gerarLeituraSimulada(); // Aplica localmente o estado e o setpoint do PI.
+              } else { // Limpa dados locais quando a simulação estiver desativada.
+                leiturasSimuladas.current = []; // Descarta amostras simuladas anteriores.
+                setHoras([]); // Limpa horários quando não existem leituras reais.
+                setTemps([]); // Limpa temperaturas quando não existem leituras reais.
+              } // Finaliza a atualização sem leituras recebidas.
+              setStatus("Desconectado"); // Exibe a ausência de conexão sem controlar o PI.
+              return; // Encerra esta consulta sem dados reais.
             }
 
-            setHoras(data.map((d) => new Date(d.recorded_at).toLocaleTimeString()));
-            setTemps(data.map((d) => Number(d.variables?.temp ?? 0)));
-            const latestReading = data.at(-1);
+            const latestReading = data.at(-1); // Obtém a leitura mais recente persistida pelo MATLAB.
+            const ageSeconds = (Date.now() - new Date(latestReading.received_at || latestReading.recorded_at).getTime()) / 1000; // Calcula a idade da leitura a partir do recebimento pelo Laravel.
+            const conexaoDetectada = Number.isFinite(ageSeconds) && ageSeconds <= 6; // Usa somente a atualidade da telemetria para indicar a conexão.
+            setStatus(conexaoDetectada ? "Conectado" : "Desconectado"); // Atualiza o rótulo e a bolinha sem afetar o controle PI.
+            if (simulacaoAtiva) { // Usa dados simulados somente quando o botão está ativo.
+              gerarLeituraSimulada(); // Atualiza o gráfico com dados locais simulados.
+            } else { // Mostra as leituras recebidas do MATLAB quando a simulação está desligada.
+              leiturasSimuladas.current = []; // Descarta o histórico simulado ao voltar aos dados reais.
+              setHoras(data.map((leitura) => new Date(leitura.recorded_at).toLocaleTimeString())); // Atualiza o eixo temporal das leituras reais.
+              setTemps(data.map((leitura) => Number(leitura.variables?.temp ?? 0))); // Atualiza o gráfico com as temperaturas recebidas.
+            } // Finaliza a seleção independente da fonte de dados.
             latestReadingId.current = Number(latestReading.id) || latestReadingId.current;
-            const reportedStatus = latestReading?.variables?.system_status;
-            if (reportedStatus === "ON" || reportedStatus === "OFF") {
-              setAtivo(reportedStatus === "ON");
-            }
+            const reportedStatus = latestReading?.variables?.system_status; // Obtém o estado enviado pelo controlador MATLAB.
+            if (!simulacaoAtiva && (reportedStatus === "ON" || reportedStatus === "OFF")) { // Atualiza o estado do controlador somente no modo real.
+              setAtivo(reportedStatus === "ON"); // Mostra se o controlador PI está ligado.
+            } // Finaliza a atualização do indicador do controlador.
             const reportedSetpoint = Number(latestReading?.variables?.setpoint);
-            if (Number.isFinite(reportedSetpoint)) setAppliedSetpoint(reportedSetpoint);
-            setStatus("Online (MATLAB data)");
+            if (!simulacaoAtiva && Number.isFinite(reportedSetpoint)) setAppliedSetpoint(reportedSetpoint); // Atualiza o setpoint aplicado somente com confirmação real.
+
 
             const queuedCommand = pendingCommand.current;
-            if (queuedCommand && latestReadingId.current > queuedCommand.afterReadingId) {
+            if (!simulacaoAtiva && queuedCommand && latestReadingId.current > queuedCommand.afterReadingId) {
               const confirmed = queuedCommand.name === "setpoint"
                 ? Math.abs(reportedSetpoint - queuedCommand.value) < 0.000001
                 : reportedStatus === (queuedCommand.value === 1 ? "ON" : "OFF");
@@ -190,20 +221,32 @@
                 pendingCommand.current = null;
               }
             }
-          } catch {
-            setStatus("Offline (Laravel)");
+          } catch { // Trata a falha da API sem bloquear a simulação local.
+            setStatus("Desconectado"); // Atualiza somente o indicador de conexão.
+            if (simulacaoAtiva) { // Executa a planta local somente se a simulação estiver ativa.
+              gerarLeituraSimulada(); // Mantém a resposta local do controlador PI.
+            } else { // Limpa dados locais quando a simulação estiver desativada.
+              leiturasSimuladas.current = []; // Descarta amostras simuladas antigas.
+              setHoras([]); // Limpa horários sem telemetria real.
+              setTemps([]); // Limpa temperaturas sem telemetria real.
+            } // Finaliza o tratamento de falha da API.
           }
         };
 
         atualizar();
         const timer = setInterval(atualizar, 2000);
         return () => clearInterval(timer);
-      }, []);
+      }, [simulacaoAtiva]); // Reinicia a consulta somente quando o modo de simulação é alternado.
 
       const enviarSetpoint = async (e) => {
         e.preventDefault();
         try {
-          const value = Number(setpoint);
+          const value = Number(setpoint); // Converte o valor digitado antes de aplicar o setpoint.
+          if (simulacaoAtiva) { // Aplica o setpoint localmente sem aguardar o MATLAB.
+            setAppliedSetpoint(value); // Atualiza imediatamente o setpoint simulado.
+            setCommandMessage(`Setpoint aplicado na simulação: ${value} °C.`); // Confirma a ação simulada de forma imediata.
+            return; // Evita enviar comandos simulados à API real.
+          }
           await api.post("/commands/add", { name: "setpoint", value });
           pendingCommand.current = {
             name: "setpoint",
@@ -217,7 +260,12 @@
       };
 
       const alternarFlag = async () => {
-        const novo = !ativo;
+        const novo = !ativo; // Calcula o próximo estado solicitado para o controlador.
+        if (simulacaoAtiva) { // Alterna o controlador localmente no modo de simulação.
+          setAtivo(novo); // Atualiza imediatamente o estado do PI simulado.
+          setCommandMessage(`Controlador ${novo ? "ligado" : "desligado"} na simulação.`); // Confirma a alteração sem mensagem de espera.
+          return; // Não envia comandos simulados ao Laravel.
+        }
         try {
           const value = novo ? 1 : 0;
           await api.post("/commands/add", { name: "flag", value });
@@ -239,7 +287,11 @@
         <div className="space-y-6">
           <div className="flex justify-between items-center">
             <h1 className="text-2xl font-bold">Monitoramento e Controle — Kit LTR701</h1>
-            <span className="text-xs px-3 py-1 rounded-full bg-slate-200 font-medium">{status}</span>
+            <div className="flex items-center gap-3"> {/* Agrupa estado da conexão e opção de simulação local. */}
+              <button type="button" onClick={() => { setSimulacaoAtiva((ativa) => !ativa); pendingCommand.current = null; setCommandMessage(""); }} className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-medium text-slate-700">{simulacaoAtiva ? "Desativar simulação" : "Ativar simulação"}</button> {/* Alterna a simulação manual sem alterar o estado detectado. */}
+              <span className={`h-3 w-3 rounded-full ${status === "Conectado" ? "bg-emerald-500" : "bg-red-500"}`} role="img" aria-label={status === "Conectado" ? "Conexão ativa" : "Conexão inativa"} title={status === "Conectado" ? "Conectado" : "Desconectado"}></span> {/* Mostra em verde a conexão ativa e em vermelho a conexão inativa. */}
+              <span className="text-xs px-3 py-1 rounded-full bg-slate-200 font-medium">{status}</span> {/* Exibe se o dashboard está conectado, offline ou simulando. */}
+            </div> {/* Finaliza o agrupamento de conexão. */}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -353,6 +405,7 @@
       const [logs, setLogs] = useState([]); // Mantém os eventos de auditoria carregados.
       const [backups, setBackups] = useState([]); // Mantém as cópias SQLite disponíveis para administração.
       const [backupSelecionado, setBackupSelecionado] = useState(""); // Guarda a cópia selecionada explicitamente.
+
 
       useEffect(() => { // Carrega logs e cópias ao abrir a tela administrativa.
         api.get("/admin/logs") // Solicita ao servidor os eventos administrativos.
