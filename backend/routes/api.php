@@ -25,6 +25,8 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::prefix('admin')->middleware('admin')->group(function () {
         Route::get('/logs', [AdminController::class, 'logs']);
+        Route::get('/backups', [AdminController::class, 'backups']); // Lista os backups disponíveis somente para administradores.
+        Route::post('/backups', [AdminController::class, 'createBackup']); // Permite criar um backup manual auditado.
         Route::post('/restore', [AdminController::class, 'restore']);
     });
 });

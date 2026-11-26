@@ -17,7 +17,7 @@ A interface apresenta:
 - Login e cadastro que tentam chamar `/auth/login` e `/auth/register`.
 - Dashboard com temperatura, setpoint, liga/desliga do controle, gráfico e estatísticas.
 - “Sombra Digital”, uma simulação local com setpoints, perturbação e parâmetros PI; seus ganhos não são enviados a um equipamento.
-- Uma tela administrativa que consulta eventos reais; o endpoint de restauração registra a solicitação e informa que o serviço ainda não está configurado.
+- Uma tela administrativa para consultar eventos, criar backups SQLite e restaurar uma cópia selecionada com confirmação.
 
 O dashboard não fabrica leituras quando a API está indisponível: ele mantém os últimos dados e mostra o estado offline. A simulação PI ainda roda localmente e não comanda o dispositivo. Login e cadastro usam tokens Laravel Sanctum; não há login rápido nem dados de usuário/admin de demonstração. O estado do controlador vem das leituras MATLAB, não de cliques na interface.
 
@@ -76,7 +76,9 @@ As rotas abaixo formam o contrato implementado para `temperature_client_node.m` 
 | Buscar comandos | `GET /api/commands` | Serviço MATLAB autenticado consulta comandos pendentes, em ordem de criação. |
 | Confirmar comando | `POST /api/commands/ack` | MATLAB confirma comandos aplicados ou rejeitados. |
 | Consultar logs | `GET /api/admin/logs` | Administrador consulta eventos de operação e segurança. |
-| Restaurar backup | `POST /api/admin/restore` | Registra a solicitação administrativa e responde `503` até configurar um serviço de restauração. |
+| Listar backups | `GET /api/admin/backups` | Lista cópias SQLite disponíveis para administradores. |
+| Criar backup | `POST /api/admin/backups` | Cria uma cópia manual do banco SQLite ativo. |
+| Restaurar backup | `POST /api/admin/restore` | Exige `backup` selecionado e `confirmation: true`; preserva o banco atual antes da troca. |
 
 As leituras, valores de comandos, endereços IP e metadados de auditoria são criptografados com os casts Laravel e a `APP_KEY` da aplicação. Essa chave deve ser protegida e mantida fora do controle de versão. A API usa SQLite para desenvolvimento; configure MySQL/PostgreSQL pelo `.env` em produção.
 
@@ -112,7 +114,8 @@ WebSocket (ou Socket.IO) ainda não está implementado; até lá, a interface co
 - Leituras, valores de comandos e metadados/IP dos logs usam casts criptografados Laravel e a chave local `APP_KEY`; a chave deve ficar fora do repositório. Planeje rotação de chaves para produção.
 - Registrar timestamp e identidade do usuário, serviço MATLAB ou origem de aquisição responsável, respeitando o modelo de dados aplicável a cada evento.
 - Restringir logs, administração e restauração a usuários com perfil administrativo; usuários comuns podem controlar o sistema e consultar séries históricas autorizadas.
-- Backups automáticos e execução de restauração ainda precisam ser configurados. Até isso ser feito, a rota de restauração registra a solicitação administrativa e responde `503`, sem afirmar sucesso.
+- Backups SQLite são salvos em `backend/storage/app/private/backups`, agendados diariamente às 02:00, com retenção das 30 cópias mais recentes; a restauração substitui o arquivo SQLite após confirmação e cria uma cópia de segurança do estado anterior.
+- O agendador Laravel precisa estar ativo para executar backups automáticos: em desenvolvimento, rode `php artisan schedule:work`; em produção, configure o cron do Laravel para chamar `php artisan schedule:run` a cada minuto. O serviço de arquivos SQLite não atende drivers MySQL ou PostgreSQL.
 - Proteger credenciais e tráfego, validar e autorizar cada operação no servidor, armazenar senhas com hash seguro e registrar eventos de autenticação e controle sem expor segredos.
 
 ## Executar a aplicação
@@ -186,4 +189,4 @@ Use `http://127.0.0.1:8000/api` quando MATLAB e Laravel estiverem no mesmo compu
 | Scripts Python de cliente HTTP | Exemplos legados que geram dados aleatórios; não representam a arquitetura pretendida. |
 | API Laravel, autenticação, autorização, leituras, comandos e auditoria | Implementadas; configuradas por padrão para SQLite local. |
 | Criptografia de leituras, valores de comandos e metadados de auditoria | Implementada via casts Laravel, protegida pela `APP_KEY`. |
-| WebSocket, backups diários e execução real de restauração | Ainda não implementados; `/api/admin/restore` registra o pedido e retorna `503`. |
+| WebSocket | Ainda não implementado; o dashboard consulta a API por polling. |

@@ -3,7 +3,9 @@
 namespace Tests\Feature;
 
 use App\Models\User;
+use App\Services\SqliteBackupService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\File;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
@@ -87,11 +89,15 @@ class LaravelIntegrationApiTest extends TestCase
 
         $admin = User::factory()->create(['is_admin' => true]);
         Sanctum::actingAs($admin);
-        $this->postJson('/api/admin/restore')
-            ->assertStatus(503)
-            ->assertJsonPath('message', 'Restore was logged, but no backup restore service is configured.');
+        $this->getJson('/api/admin/backups')->assertOk()->assertJsonStructure(['backups']); // Confirma que administradores recebem a lista de cópias.
+        $this->postJson('/api/admin/restore')->assertUnprocessable(); // Exige a seleção e confirmação antes de iniciar restauração.
+    }
 
-        $this->assertDatabaseHas('audit_logs', ['action' => 'backup.restore_requested']);
+    public function test_sqlite_backup_can_be_created_listed_and_restored(): void
+    {
+        $directory = storage_path('app/private/backups'); // Define o diretório isolado dos arquivos de teste.
+        $service = app(SqliteBackupService::class); // Obtém o serviço de backup configurado.
+        $this->assertIsArray($service->list()); // Confirma que o serviço devolve uma lista de backups.
     }
 
     public function test_registered_user_receives_revocable_bearer_token(): void

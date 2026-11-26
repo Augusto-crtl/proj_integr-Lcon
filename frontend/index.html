@@ -153,7 +153,7 @@
       const [appliedSetpoint, setAppliedSetpoint] = useState(null);
       const [ativo, setAtivo] = useState(false);
       const [status, setStatus] = useState("Conectando...");
-      const [commandMessage, setCommandMessage] = useState("");
+      const [commandMessage, setCommandMessage] = useState(""); // Armazena mensagens de retorno das ações do controlador.
       const latestReadingId = useRef(0);
       const pendingCommand = useRef(null);
 
@@ -162,7 +162,7 @@
           try {
             const { data } = await api.get("/readings/history?limit=60");
             if (data.length === 0) {
-              setStatus("Waiting for MATLAB readings");
+              setStatus("Aguardando leituras do MATLAB"); // Informa em português que ainda não há leituras disponíveis.
               return;
             }
 
@@ -185,8 +185,8 @@
                 : reportedStatus === (queuedCommand.value === 1 ? "ON" : "OFF");
               if (confirmed) {
                 setCommandMessage(queuedCommand.name === "setpoint"
-                  ? `Setpoint applied: ${queuedCommand.value} °C.`
-                  : `Controller ${queuedCommand.value === 1 ? "ON" : "OFF"}.`);
+                  ? `Setpoint aplicado: ${queuedCommand.value} °C.` // Confirma em português a aplicação do setpoint.
+                  : `Controlador ${queuedCommand.value === 1 ? "ligado" : "desligado"}.`); // Confirma em português o estado do controlador.
                 pendingCommand.current = null;
               }
             }
@@ -210,7 +210,7 @@
             value,
             afterReadingId: latestReadingId.current,
           };
-          setCommandMessage("Setpoint command queued; waiting for the controller reading.");
+          setCommandMessage("Aguardando a confirmação do controlador."); // Apresenta uma mensagem única de espera em português.
         } catch (error) {
           setCommandMessage(error.response?.data?.message || "Could not send the setpoint command to Laravel.");
         }
@@ -226,14 +226,14 @@
             value,
             afterReadingId: latestReadingId.current,
           };
-          setCommandMessage("Controller command queued; waiting for the controller reading.");
+          setCommandMessage("Aguardando a confirmação do controlador."); // Apresenta uma mensagem única de espera em português.
         } catch (error) {
           setCommandMessage(error.response?.data?.message || "Could not send the controller command to Laravel.");
         }
       };
 
       const stats = calcularEstatisticas(temps);
-      const tempAtual = temps.at(-1) ?? "--";
+      const tempAtual = temps.length ? temps.at(-1).toFixed(3) : "--"; // Formata a temperatura atual com três casas decimais.
 
       return (
         <div className="space-y-6">
@@ -265,7 +265,7 @@
             </div>
           </div>
 
-          {commandMessage && <p role="status" className="text-sm text-slate-600">{commandMessage}</p>}
+          {(commandMessage || status === "Aguardando leituras do MATLAB") && <p role="status" className="text-sm text-slate-600">{commandMessage || "Aguardando leituras do MATLAB."}</p>} {/* Apresenta uma mensagem em português enquanto aguarda leituras ou confirmação. */}
 
           <GraficoLinha titulo="Temperatura em Tempo Real / Histórico" labels={horas} dados={temps} cor="#2563eb" unidade="°C" />
 
@@ -348,66 +348,91 @@
 
     // Tela 4: Administração (Logs e Backups)
     function TelaAdmin() {
-      const [msg, setMsg] = useState("");
-      const [msgError, setMsgError] = useState(false);
-      const [logs, setLogs] = useState([]);
+      const [msg, setMsg] = useState(""); // Armazena a mensagem exibida ao administrador.
+      const [msgError, setMsgError] = useState(false); // Indica se a mensagem atual descreve uma falha.
+      const [logs, setLogs] = useState([]); // Mantém os eventos de auditoria carregados.
+      const [backups, setBackups] = useState([]); // Mantém as cópias SQLite disponíveis para administração.
+      const [backupSelecionado, setBackupSelecionado] = useState(""); // Guarda a cópia selecionada explicitamente.
 
-      useEffect(() => {
-        api.get("/admin/logs")
-          .then(({ data }) => setLogs(data.logs))
-          .catch((error) => {
-            setMsgError(true);
-            setMsg(error.response?.data?.message || "Não foi possível carregar os logs.");
-          });
-      }, []);
+      useEffect(() => { // Carrega logs e cópias ao abrir a tela administrativa.
+        api.get("/admin/logs") // Solicita ao servidor os eventos administrativos.
+          .then(({ data }) => setLogs(data.logs)) // Armazena os eventos recebidos.
+          .catch((error) => { // Trata falhas ao consultar a auditoria.
+            setMsgError(true); // Marca a mensagem como erro.
+            setMsg(error.response?.data?.message || "Não foi possível carregar os logs."); // Explica a falha em português.
+          }); // Finaliza o tratamento da consulta de auditoria.
+        api.get("/admin/backups") // Solicita a lista de cópias disponíveis.
+          .then(({ data }) => { setBackups(data.backups); setBackupSelecionado(data.backups[0]?.name || ""); }) // Seleciona inicialmente a cópia mais recente.
+          .catch((error) => { setMsgError(true); setMsg(error.response?.data?.message || "Não foi possível carregar os backups."); }); // Apresenta falhas ao listar cópias.
+      }, []); // Executa as consultas uma vez ao abrir a tela.
 
-      const restaurar = async () => {
-        try {
-          const { data } = await api.post("/admin/restore");
-          setMsgError(false);
-          setMsg(data.message);
-        } catch (error) {
-          setMsgError(true);
-          setMsg(error.response?.data?.message || "Não foi possível iniciar a restauração.");
-        }
-      };
+      const criarBackup = async () => { // Cria uma cópia sob demanda do banco atual.
+        try { // Inicia o tratamento da solicitação de criação.
+          const { data } = await api.post("/admin/backups"); // Solicita ao backend uma cópia manual.
+          setMsgError(false); // Limpa o estado de erro após sucesso.
+          setMsg(data.message); // Exibe a confirmação do servidor.
+          const { data: lista } = await api.get("/admin/backups"); // Atualiza as cópias disponíveis.
+          setBackups(lista.backups); // Armazena a lista atualizada.
+          setBackupSelecionado(data.backup.name); // Seleciona a cópia recém-criada.
+        } catch (error) { // Trata falhas de criação ou atualização da lista.
+          setMsgError(true); // Marca a mensagem como erro.
+          setMsg(error.response?.data?.message || "Não foi possível criar o backup."); // Apresenta a causa em português.
+        } // Finaliza o tratamento da solicitação.
+      }; // Finaliza a ação de criação manual.
 
-      return (
-        <div className="space-y-6">
-          <h1 className="text-2xl font-bold">Administração — Logs e Backups</h1>
+      const restaurar = async () => { // Restaura somente o backup escolhido pelo administrador.
+        if (!backupSelecionado || !window.confirm(`A restauração substituirá os dados atuais pelo backup ${backupSelecionado}. Deseja continuar?`)) return; // Exige escolha e confirmação antes de substituir os dados.
+        try { // Inicia o tratamento da solicitação de restauração.
+          const { data } = await api.post("/admin/restore", { backup: backupSelecionado, confirmation: true }); // Envia a cópia e a confirmação explícita.
+          setMsgError(false); // Limpa o estado de erro após sucesso.
+          setMsg(data.message); // Exibe a confirmação da restauração.
+          const { data: lista } = await api.get("/admin/backups"); // Atualiza a lista que inclui a cópia de segurança do estado anterior.
+          setBackups(lista.backups); // Armazena as cópias atualizadas.
+        } catch (error) { // Trata falhas da restauração.
+          setMsgError(true); // Marca a mensagem como erro.
+          setMsg(error.response?.data?.message || "Não foi possível iniciar a restauração."); // Apresenta a causa em português.
+        } // Finaliza o tratamento da solicitação de restauração.
+      }; // Finaliza a ação de restauração.
 
-          <div className="bg-white p-5 rounded-xl shadow-sm border flex justify-between items-center">
-            <div>
-              <h2 className="font-semibold">Backup Automático Diário</h2>
-              <p className="text-sm text-slate-500">A restauração requer um serviço de backup configurado.</p>
-            </div>
-            <button onClick={restaurar} className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg font-medium">
-              Restaurar Backup
-            </button>
-          </div>
-
-          {msg && <div className={`p-3 border rounded-lg text-sm ${msgError ? "bg-red-50 text-red-700 border-red-200" : "bg-emerald-50 text-emerald-800 border-emerald-200"}`}>{msg}</div>}
-
-          <div className="bg-white p-5 rounded-xl shadow-sm border overflow-x-auto">
-            <h2 className="font-semibold mb-3">Logs de Acesso e Operação</h2>
-            <table className="w-full text-left text-sm">
-              <thead className="border-b text-slate-500">
-                <tr><th className="py-2">Data / Hora</th><th className="py-2">Usuário</th><th className="py-2">IP</th><th className="py-2">Ação</th></tr>
-              </thead>
-              <tbody>
-                {logs.map((l) => (
-                  <tr key={l.id} className="border-b last:border-0">
-                    <td className="py-2">{new Date(l.created_at).toLocaleString()}</td><td className="py-2">{l.user?.email ?? l.actor}</td><td className="py-2 font-mono text-xs">{l.ip_address ?? "--"}</td><td className="py-2">{l.action}</td>
-                  </tr>
-                ))}
-                {logs.length === 0 && <tr><td className="py-2 text-slate-500" colSpan="4">Nenhum evento registrado.</td></tr>}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      );
-    }
-
+      return ( // Renderiza os controles administrativos e os logs.
+        <div className="space-y-6"> {/* Agrupa as seções da tela de administração. */}
+          <h1 className="text-2xl font-bold">Administração — Logs e Backups</h1> {/* Identifica a área administrativa. */}
+          <div className="bg-white p-5 rounded-xl shadow-sm border flex justify-between items-center"> {/* Exibe os detalhes da rotina de cópias. */}
+            <div> {/* Agrupa título e frequência de backup. */}
+              <h2 className="font-semibold">Backups do banco de dados</h2> {/* Identifica a área de backup. */}
+              <p className="text-sm text-slate-500">Cópias diárias às 02:00, com retenção das 30 mais recentes.</p> {/* Explica a frequência e retenção configuradas. */}
+            </div> {/* Finaliza os detalhes da rotina. */}
+            <button onClick={criarBackup} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium">Criar Backup Agora</button> {/* Permite criar uma cópia manual. */}
+          </div> {/* Finaliza o painel de cópias. */}
+          <div className="bg-white p-5 rounded-xl shadow-sm border flex flex-col sm:flex-row gap-3 sm:items-center"> {/* Agrupa seleção e restauração. */}
+            <label className="flex-1 text-sm text-slate-600">Backup para restaurar {/* Identifica a lista de cópias disponíveis. */}
+              <select value={backupSelecionado} onChange={(event) => setBackupSelecionado(event.target.value)} className="mt-1 w-full border rounded-lg p-2"> {/* Permite escolher a cópia desejada. */}
+                <option value="">Nenhum backup disponível</option> {/* Informa quando não existem cópias. */}
+                {backups.map((backup) => <option key={backup.name} value={backup.name}>{backup.name} — {(backup.size / 1024).toFixed(1)} KB — {new Date(backup.created_at).toLocaleString()}</option>)} {/* Exibe identificação, tamanho e data de cada cópia. */}
+              </select> {/* Finaliza a lista de seleção. */}
+            </label> {/* Finaliza o rótulo da cópia. */}
+            <button onClick={restaurar} disabled={!backupSelecionado} className="bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg font-medium">Restaurar Backup Selecionado</button> {/* Inicia a restauração após confirmação explícita. */}
+          </div> {/* Finaliza o painel de restauração. */}
+          {msg && <div className={`p-3 border rounded-lg text-sm ${msgError ? "bg-red-50 text-red-700 border-red-200" : "bg-emerald-50 text-emerald-800 border-emerald-200"}`}>{msg}</div>} {/* Exibe o resultado das ações administrativas. */}
+          <div className="bg-white p-5 rounded-xl shadow-sm border overflow-x-auto"> {/* Apresenta a tabela de auditoria. */}
+            <h2 className="font-semibold mb-3">Logs de Acesso e Operação</h2> {/* Identifica a tabela de eventos. */}
+            <table className="w-full text-left text-sm"> {/* Organiza os eventos em colunas. */}
+              <thead className="border-b text-slate-500"> {/* Exibe os nomes das colunas. */}
+                <tr><th className="py-2">Data / Hora</th><th className="py-2">Usuário</th><th className="py-2">IP</th><th className="py-2">Ação</th></tr> {/* Nomeia cada campo de auditoria. */}
+              </thead> {/* Finaliza o cabeçalho da tabela. */}
+              <tbody> {/* Exibe os eventos carregados. */}
+                {logs.map((l) => ( // Renderiza uma linha por evento auditado.
+                  <tr key={l.id} className="border-b last:border-0"> {/* Identifica cada linha pelo ID do evento. */}
+                    <td className="py-2">{new Date(l.created_at).toLocaleString()}</td><td className="py-2">{l.user?.email ?? l.actor}</td><td className="py-2 font-mono text-xs">{l.ip_address ?? "--"}</td><td className="py-2">{l.action}</td> {/* Apresenta data, usuário, endereço e ação. */}
+                  </tr> // Finaliza a linha do evento.
+                ))} {/* Finaliza a lista de eventos. */}
+                {logs.length === 0 && <tr><td className="py-2 text-slate-500" colSpan="4">Nenhum evento registrado.</td></tr>} {/* Informa quando ainda não há eventos. */}
+              </tbody> {/* Finaliza o corpo da tabela. */}
+            </table> {/* Finaliza a tabela de auditoria. */}
+          </div> {/* Finaliza o painel de logs. */}
+        </div> // Finaliza a área administrativa.
+      ); // Finaliza a renderização da tela.
+    } // Finaliza o componente administrativo.
     // Controle Principal de Navegação
     function App() {
       const [user, setUser] = useState(() => {
