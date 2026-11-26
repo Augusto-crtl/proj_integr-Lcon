@@ -25,7 +25,7 @@
     const { useState, useEffect, useRef } = React;
 
     // Componente reutilizável de Gráfico (Chart.js)
-    function GraficoLinha({ titulo, labels, dados, cor, unidade }) {
+    function GraficoLinha({ titulo, labels, dados, cor, unidade, indicesAnomalia = new Set() }) { // Aceita os índices sinalizados para destacá-los no gráfico.
       const canvasRef = useRef(null);
       const chartRef = useRef(null);
 
@@ -35,6 +35,8 @@
         if (chartRef.current) {
           chartRef.current.data.labels = labels;
           chartRef.current.data.datasets[0].data = dados;
+          chartRef.current.data.datasets[0].pointBackgroundColor = dados.map((_, indice) => indicesAnomalia.has(indice) ? "#dc2626" : cor); // Atualiza as cores dos pontos de anomalia.
+          chartRef.current.data.datasets[0].pointRadius = dados.map((_, indice) => indicesAnomalia.has(indice) ? 6 : 0); // Destaca pontos sinalizados sem poluir os demais.
           chartRef.current.update("none");
           return;
         }
@@ -49,7 +51,8 @@
               borderColor: cor,
               backgroundColor: cor + "22",
               borderWidth: 2,
-              pointRadius: 0,
+              pointBackgroundColor: dados.map((_, indice) => indicesAnomalia.has(indice) ? "#dc2626" : cor), // Destaca anomalias em vermelho no gráfico.
+              pointRadius: dados.map((_, indice) => indicesAnomalia.has(indice) ? 6 : 0), // Exibe marcadores apenas para amostras sinalizadas.
               tension: 0.2,
             }],
           },
@@ -150,6 +153,7 @@
     function TelaDashboard() {
       const [horas, setHoras] = useState([]);
       const [temps, setTemps] = useState([]);
+      const [leiturasReais, setLeiturasReais] = useState([]); // Mantém os registros reais para relacionar anomalias aos horários recebidos.
       const [setpoint, setSetpoint] = useState(45);
       const [appliedSetpoint, setAppliedSetpoint] = useState(null);
       const [ativo, setAtivo] = useState(false);
@@ -184,6 +188,7 @@
                 leiturasSimuladas.current = []; // Descarta amostras simuladas anteriores.
                 setHoras([]); // Limpa horários quando não existem leituras reais.
                 setTemps([]); // Limpa temperaturas quando não existem leituras reais.
+                setLeiturasReais([]); // Limpa as anomalias quando não há leituras reais.
               } // Finaliza a atualização sem leituras recebidas.
               setStatus("Desconectado"); // Exibe a ausência de conexão sem controlar o PI.
               return; // Encerra esta consulta sem dados reais.
@@ -199,6 +204,7 @@
               leiturasSimuladas.current = []; // Descarta o histórico simulado ao voltar aos dados reais.
               setHoras(data.map((leitura) => new Date(leitura.recorded_at).toLocaleTimeString())); // Atualiza o eixo temporal das leituras reais.
               setTemps(data.map((leitura) => Number(leitura.variables?.temp ?? 0))); // Atualiza o gráfico com as temperaturas recebidas.
+              setLeiturasReais(data.map((leitura) => ({ id: leitura.id, recorded_at: leitura.recorded_at, temperatura: Number(leitura.variables?.temp) })).filter((leitura) => Number.isFinite(leitura.temperatura))); // Guarda apenas temperaturas reais válidas para a análise.
             } // Finaliza a seleção independente da fonte de dados.
             latestReadingId.current = Number(latestReading.id) || latestReadingId.current;
             const reportedStatus = latestReading?.variables?.system_status; // Obtém o estado enviado pelo controlador MATLAB.
@@ -229,6 +235,7 @@
               leiturasSimuladas.current = []; // Descarta amostras simuladas antigas.
               setHoras([]); // Limpa horários sem telemetria real.
               setTemps([]); // Limpa temperaturas sem telemetria real.
+              setLeiturasReais([]); // Limpa anomalias antigas quando a consulta falha.
             } // Finaliza o tratamento de falha da API.
           }
         };
@@ -281,6 +288,19 @@
       };
 
       const stats = calcularEstatisticas(temps);
+      const janelaAnomalia = 10; // Define a quantidade de amostras anteriores usadas como referência local.
+      const limiteDesvioPadrao = 3; // Sinaliza temperaturas além de três desvios padrão da janela anterior.
+      const anomalias = simulacaoAtiva ? [] : leiturasReais.map((leitura, indice, leituras) => { // Analisa somente leituras reais para não misturar dados simulados.
+        const anteriores = leituras.slice(Math.max(0, indice - janelaAnomalia), indice).map((item) => item.temperatura); // Seleciona até dez amostras anteriores à leitura avaliada.
+        if (anteriores.length < 5) return null; // Aguarda cinco referências para evitar sinalização baseada em amostra pequena.
+        const mediaAnterior = anteriores.reduce((soma, valor) => soma + valor, 0) / anteriores.length; // Calcula a média histórica local.
+        const varianciaAnterior = anteriores.reduce((soma, valor) => soma + (valor - mediaAnterior) ** 2, 0) / anteriores.length; // Calcula a variância populacional da janela anterior.
+        const desvioPadraoAnterior = Math.sqrt(varianciaAnterior); // Obtém a dispersão das amostras de referência.
+        const limiteMinimo = Math.max(0.25, desvioPadraoAnterior * limiteDesvioPadrao); // Aplica piso de 0,25 °C para evitar alertas por ruído quase nulo.
+        return Math.abs(leitura.temperatura - mediaAnterior) > limiteMinimo ? { ...leitura, mediaAnterior, diferenca: leitura.temperatura - mediaAnterior } : null; // Marca desvios relevantes sem tratar o alerta como falha confirmada.
+      }).filter(Boolean); // Remove as amostras que ficaram dentro do comportamento esperado.
+      const indicesAnomalia = new Set(anomalias.map((anomalia) => leiturasReais.findIndex((leitura) => leitura.id === anomalia.id))); // Relaciona cada alerta ao ponto correspondente do gráfico.
+      const textoAnomalias = anomalias.length ? `${anomalias.length} leitura(s) sinalizada(s) pela regra de ${limiteDesvioPadrao} desvios padrão em uma janela móvel de até ${janelaAnomalia} amostras anteriores (piso de 0,25 °C).` : "Nenhuma anomalia sinalizada nas leituras reais disponíveis."; // Explica o método e seu limiar na interface.
       const tempAtual = temps.length ? temps.at(-1).toFixed(3) : "--"; // Formata a temperatura atual com três casas decimais.
 
       return (
@@ -319,7 +339,14 @@
 
           {(commandMessage || status === "Aguardando leituras do MATLAB") && <p role="status" className="text-sm text-slate-600">{commandMessage || "Aguardando leituras do MATLAB."}</p>} {/* Apresenta uma mensagem em português enquanto aguarda leituras ou confirmação. */}
 
-          <GraficoLinha titulo="Temperatura em Tempo Real / Histórico" labels={horas} dados={temps} cor="#2563eb" unidade="°C" />
+          <GraficoLinha titulo="Temperatura em Tempo Real / Histórico" labels={horas} dados={temps} cor="#2563eb" unidade="°C" indicesAnomalia={indicesAnomalia} />
+
+          <section aria-live="polite" className={`rounded-xl border p-5 shadow-sm ${anomalias.length ? "border-amber-300 bg-amber-50" : "border-emerald-200 bg-white"}`}> {/* Apresenta uma área acessível com o resumo da detecção de anomalias. */}
+            <h2 className="font-semibold text-slate-800">Detecção de anomalias</h2> {/* Identifica o recurso de análise de desvios. */}
+            <p className="mt-1 text-sm text-slate-600">{simulacaoAtiva ? "A detecção está pausada durante a simulação local; somente leituras reais são analisadas." : textoAnomalias}</p> {/* Informa o resultado e deixa explícito o tratamento separado da simulação. */}
+            {anomalias.length > 0 && <ul className="mt-3 space-y-1 text-sm text-amber-900">{anomalias.slice(-5).reverse().map((anomalia) => <li key={anomalia.id}>Leitura {anomalia.id} às {new Date(anomalia.recorded_at).toLocaleString()}: {anomalia.temperatura.toFixed(2)} °C ({anomalia.diferenca > 0 ? "+" : ""}{anomalia.diferenca.toFixed(2)} °C em relação à média anterior de {anomalia.mediaAnterior.toFixed(2)} °C).</li>)}</ul>} {/* Lista até cinco desvios recentes para facilitar a inspeção pelo operador. */}
+            <p className="mt-3 text-xs text-slate-500">Este é um alerta estatístico para revisão; não confirma defeito nem substitui limites de segurança definidos para o equipamento.</p> {/* Evita interpretar o sinalizador estatístico como diagnóstico ou proteção física. */}
+          </section> {/* Finaliza a área de alertas. */}
 
           {stats && (
             <div className="bg-white p-5 rounded-xl shadow-sm border">
