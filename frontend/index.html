@@ -154,21 +154,42 @@
       const [ativo, setAtivo] = useState(false);
       const [status, setStatus] = useState("Conectando...");
       const [commandMessage, setCommandMessage] = useState("");
+      const latestReadingId = useRef(0);
+      const pendingCommand = useRef(null);
 
       useEffect(() => {
         const atualizar = async () => {
           try {
             const { data } = await api.get("/readings/history?limit=60");
+            if (data.length === 0) {
+              setStatus("Waiting for MATLAB readings");
+              return;
+            }
+
             setHoras(data.map((d) => new Date(d.recorded_at).toLocaleTimeString()));
             setTemps(data.map((d) => Number(d.variables?.temp ?? 0)));
             const latestReading = data.at(-1);
+            latestReadingId.current = Number(latestReading.id) || latestReadingId.current;
             const reportedStatus = latestReading?.variables?.system_status;
             if (reportedStatus === "ON" || reportedStatus === "OFF") {
               setAtivo(reportedStatus === "ON");
             }
             const reportedSetpoint = Number(latestReading?.variables?.setpoint);
             if (Number.isFinite(reportedSetpoint)) setAppliedSetpoint(reportedSetpoint);
-            setStatus("Online (Laravel)");
+            setStatus("Online (MATLAB data)");
+
+            const queuedCommand = pendingCommand.current;
+            if (queuedCommand && latestReadingId.current > queuedCommand.afterReadingId) {
+              const confirmed = queuedCommand.name === "setpoint"
+                ? Math.abs(reportedSetpoint - queuedCommand.value) < 0.000001
+                : reportedStatus === (queuedCommand.value === 1 ? "ON" : "OFF");
+              if (confirmed) {
+                setCommandMessage(queuedCommand.name === "setpoint"
+                  ? `Setpoint applied: ${queuedCommand.value} °C.`
+                  : `Controller ${queuedCommand.value === 1 ? "ON" : "OFF"}.`);
+                pendingCommand.current = null;
+              }
+            }
           } catch {
             setStatus("Offline (Laravel)");
           }
@@ -182,7 +203,13 @@
       const enviarSetpoint = async (e) => {
         e.preventDefault();
         try {
-          await api.post("/commands/add", { name: "setpoint", value: Number(setpoint) });
+          const value = Number(setpoint);
+          await api.post("/commands/add", { name: "setpoint", value });
+          pendingCommand.current = {
+            name: "setpoint",
+            value,
+            afterReadingId: latestReadingId.current,
+          };
           setCommandMessage("Setpoint command queued; waiting for the controller reading.");
         } catch (error) {
           setCommandMessage(error.response?.data?.message || "Could not send the setpoint command to Laravel.");
@@ -192,7 +219,13 @@
       const alternarFlag = async () => {
         const novo = !ativo;
         try {
-          await api.post("/commands/add", { name: "flag", value: novo ? 1 : 0 });
+          const value = novo ? 1 : 0;
+          await api.post("/commands/add", { name: "flag", value });
+          pendingCommand.current = {
+            name: "flag",
+            value,
+            afterReadingId: latestReadingId.current,
+          };
           setCommandMessage("Controller command queued; waiting for the controller reading.");
         } catch (error) {
           setCommandMessage(error.response?.data?.message || "Could not send the controller command to Laravel.");

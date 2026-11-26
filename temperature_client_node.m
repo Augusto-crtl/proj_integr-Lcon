@@ -1,4 +1,4 @@
-function temperature_client_node()
+﻿function temperature_client_node()
 clc
 
 apiBaseUrl = getenv("MATLAB_LARAVEL_API_URL");
@@ -15,10 +15,10 @@ if isempty(apiToken)
 end
 
 d = daq("ni");
-ch1 = addinput(d, "Dev3", "ai0", "voltage");
+ch1 = addinput(d, "Dev1", "ai0", "voltage");
 ch1.TerminalConfig = "SingleEnded";
-addoutput(d, "Dev3", "ao0", "Voltage");
-addoutput(d, "Dev3", "ao1", "Voltage");
+addoutput(d, "Dev1", "ao0", "Voltage");
+addoutput(d, "Dev1", "ao1", "Voltage");
 d.Rate = 100;
 write(d, [0 0]);
 
@@ -37,7 +37,7 @@ end
 systemStatus = "OFF";
 setpoint = 30.0;
 telemetryInterval = 1.0;
-workerHeartbeatTimeout = 3.0;
+workerHeartbeatTimeout = 6.0; % Mantém a saída segura por mais tempo durante requisições lentas.
 lastTelemetrySent = tic;
 lastWorkerHeartbeat = tic;
 
@@ -58,6 +58,11 @@ while true
 
     stateUpdate = poll(stateQueue, 0);
     while ~isempty(stateUpdate)
+        if isstruct(stateUpdate) && isfield(stateUpdate, "log") % Detecta mensagens de falha enviadas pelo worker.
+            fprintf(2, "[API worker] %s\n", stateUpdate.log); % Mostra a falha no fluxo de erro.
+            stateUpdate = poll(stateQueue, 0); % Lê a próxima atualização pendente.
+            continue % Evita interpretar o registro como estado do sistema.
+        end
         if isstruct(stateUpdate) && ...
                 isfield(stateUpdate, "status") && ...
                 isfield(stateUpdate, "setpoint")
@@ -83,8 +88,8 @@ while true
         systemStatus = "OFF";
     end
 
-    measurement = read(d);
-    temp_C = 10.0 * measurement.Dev3_ai0;
+    measurement = read(d);  
+    temp_C = 10.0 * measurement.Dev1_ai0;
     xf1 = xf0;
     xf0 = temp_C;
     yf1 = yf0;
@@ -141,9 +146,10 @@ readingQueue = parallel.pool.PollableDataQueue;
 send(readingQueueReady, readingQueue);
 
 apiOptions = weboptions( ...
-    "MediaType", "application/json", ...
-    "Timeout", 1, ...
-    "HeaderFields", string({'Authorization', ['Bearer ' char(apiToken)]}));
+    "MediaType", "application/json", ... % Define o corpo das chamadas como JSON.
+    "HeaderFields", string({'Authorization', ['Bearer ' char(apiToken)]; ...
+                            'Accept', 'application/json'}), ... % Solicita respostas JSON autenticadas.
+    "Timeout", 3); % Define o limite de espera das requisições.
 
 commandPollInterval = 1.0;
 readingPostInterval = 1.0;
@@ -153,12 +159,13 @@ setpoint = 30.0;
 commandsApiOk = true;
 readingsApiOk = true;
 apiFailureReported = false;
-mustRearmAfterApiFailure = false;
+requireFreshActivation = true;
 hasReading = false;
 latestReading = struct();
 lastCommandPoll = tic;
 lastReadingPost = tic;
 lastHeartbeat = tic;
+commandsDrained = false;
 
 publishState();
 
@@ -176,6 +183,7 @@ while true
         hasReading = true;
     end
 
+    commandsDrained = false;
     if toc(lastCommandPoll) >= commandPollInterval
         lastCommandPoll = tic;
         try
@@ -186,7 +194,8 @@ while true
             end
 
             commands = commandResponse.commands;
-            rejectActivation = mustRearmAfterApiFailure;
+            commandsDrained = isempty(commands);
+            rejectActivation = requireFreshActivation;
             if rejectActivation
                 systemStatus = "OFF";
             end
@@ -231,7 +240,7 @@ while true
                         if rejectActivation
                             acknowledgementStatus = "rejected";
                             rejectionReason = ...
-                                "Resubmit activation after the API connection recovers.";
+                                "Submit activation again after the API connection is available.";
                         else
                             systemStatus = "ON";
                         end
@@ -250,14 +259,15 @@ while true
                 if strlength(rejectionReason) > 0
                     acknowledgement.reason = char(rejectionReason);
                 end
-                webwrite(apiBaseUrl + "/commands/ack", acknowledgement, apiOptions);
+                webwrite(apiBaseUrl + "/commands/ack", acknowledgement, apiOptions); % Confirma o comando processado.
+                publishState(); % Atualiza o controlador após cada confirmação.
             end
             commandsApiOk = true;
         catch ME
             markApiUnavailable("Laravel command API unavailable", ME);
             commandsApiOk = false;
             readingsApiOk = false;
-            mustRearmAfterApiFailure = true;
+            requireFreshActivation = true;
         end
     end
 
@@ -282,7 +292,7 @@ while true
             commandsApiOk = false;
             readingsApiOk = false;
             systemStatus = "OFF";
-            mustRearmAfterApiFailure = true;
+            requireFreshActivation = true;
         end
     end
 
@@ -291,7 +301,9 @@ while true
             disp("Laravel API connection recovered.");
             apiFailureReported = false;
         end
-        mustRearmAfterApiFailure = false;
+        if commandsDrained
+            requireFreshActivation = false;
+        end
     end
 
     if toc(lastHeartbeat) >= heartbeatInterval
@@ -301,12 +313,10 @@ while true
 end
 
     function markApiUnavailable(message, exception)
-        systemStatus = "OFF";
-        if ~apiFailureReported
-            warning("%s; forcing system OFF: %s", message, exception.message);
-            apiFailureReported = true;
-        end
-        publishState();
+        systemStatus = "OFF"; % Desliga o controlador após uma falha de API.
+        send(stateQueue, struct("log", string(message) + ": " + exception.message)); % Envia o erro ao loop principal.
+        apiFailureReported = true; % Marca a falha para controlar a recuperação.
+        publishState(); % Propaga o estado OFF ao controlador.
     end
 
     function publishState()

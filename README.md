@@ -96,7 +96,7 @@ Payload de leitura enviado a cada segundo:
 
 `GET /api/commands` retorna `{"commands":[{"id":123,"name":"setpoint","value":45},{"id":124,"name":"flag","value":1}]}`. A interface enfileira `setpoint` (20–99 °C) e `flag` (0 = OFF, 1 = ON) usando o contrato de `frontend/index.html`. Para cada comando, MATLAB envia `{"id":123,"status":"applied"}` ou `{"id":123,"status":"rejected","reason":"..."}` a `/api/commands/ack`. A API autentica a origem, retorna apenas comandos pendentes e registra a confirmação; o estado do controlador é exibido a partir das leituras, não inferido apenas do clique no navegador.
 
-Se uma chamada à API falhar, o worker força o estado para OFF. Depois da recuperação, uma ativação ON que ficou pendente durante a indisponibilidade é rejeitada; o usuário precisa ativar novamente pelo dashboard. A aquisição e o controle local continuam no período de 100 Hz, mas se o worker deixar de responder por três segundos o controlador também vai para OFF.
+Se uma chamada à API falhar ou o MATLAB for iniciado, o worker força o estado para OFF. Ativações ON pendentes durante a indisponibilidade ou na inicialização são rejeitadas; o usuário precisa enviar uma nova ativação pelo dashboard depois que a conexão estiver confirmada. A aquisição e o controle local continuam no período de 100 Hz, mas se o worker deixar de responder por três segundos o controlador também vai para OFF.
 
 WebSocket (ou Socket.IO) ainda não está implementado; até lá, a interface consulta o histórico por polling. REST atende autenticação, configuração de parâmetros, histórico e operações administrativas.
 
@@ -134,13 +134,20 @@ Defina um segredo forte apenas no `backend/.env`:
 MATLAB_LARAVEL_API_TOKEN=<segredo-forte-compartilhado-com-matlab>
 ```
 
-Inicie a aplicação aceitando conexões da rede local:
+Inicie a aplicação vinculando-a somente ao endereço necessário. Se MATLAB e Laravel estiverem neste mesmo computador, use localhost:
 
 ```powershell
-php artisan serve --host 0.0.0.0 --port 8000
+php artisan serve --host 127.0.0.1 --port 8000
 ```
 
-No computador que hospeda Laravel, abra `http://127.0.0.1:8000`. Para o MATLAB remoto, descubra o IPv4 desse computador com `ipconfig` e use esse endereço na URL da API. Se o Firewall do Windows perguntar, permita o PHP apenas em redes privadas; se necessário, crie uma regra de entrada TCP para a porta `8000`, restrita à rede privada. Os dois computadores precisam estar na mesma rede e a porta não deve ser encaminhada/exposta à Internet. `php artisan serve` é apenas para desenvolvimento e teste em rede confiável.
+Se MATLAB estiver em outro computador, vincule Laravel somente ao endereço privado da LAN ou da VPN:
+
+```powershell
+$LaravelHostIp = "192.168.1.50" # substitua pelo IPv4 privado da LAN ou da VPN
+php artisan serve --host $LaravelHostIp --port 8000
+```
+
+No mesmo computador, abra `http://127.0.0.1:8000` e configure `MATLAB_LARAVEL_API_URL` como `http://127.0.0.1:8000/api`. Para computadores separados, abra `http://192.168.1.50:8000` no host Laravel e configure MATLAB com `http://192.168.1.50:8000/api`, substituindo o exemplo pelo IPv4 privado da LAN ou VPN. Os computadores devem compartilhar a mesma LAN privada ou VPN. Se o Firewall do Windows bloquear uma conexão remota, permita TCP `8000` apenas pela interface privada/VPN e restrinja a origem ao computador MATLAB. Não use `0.0.0.0`, não encaminhe a porta pelo roteador e não use um IPv4 público com HTTP. `php artisan serve` é apenas para desenvolvimento e teste em rede confiável.
 
 Cadastros criam usuários comuns. Para promover uma conta a administradora, execute `php artisan tinker` e rode no prompt:
 
@@ -166,7 +173,7 @@ setenv("MATLAB_LARAVEL_API_TOKEN", "<token-de-servico>")
 temperature_client_node
 ```
 
-Substitua `192.168.1.50` pelo IPv4 do computador que executa Laravel. Não use `127.0.0.1` aqui: esse endereço apontaria para o próprio computador MATLAB. Configure o mesmo segredo forte em `MATLAB_LARAVEL_API_TOKEN` no `backend/.env` e na sessão MATLAB; não o salve no repositório. A URL agora é obrigatória para evitar que o cliente tente conectar silenciosamente ao computador errado. O script mantém o DAQ no loop principal e executa as chamadas Laravel em um background worker. MATLAB faz requisições HTTP diretamente, portanto essa comunicação não depende de CORS. O comando de ativação deve ser enviado pelo dashboard autenticado; o backend autoriza a operação e a enfileira para MATLAB.
+Use `http://127.0.0.1:8000/api` quando MATLAB e Laravel estiverem no mesmo computador. Caso contrário, substitua `192.168.1.50` pelo IPv4 privado da LAN ou VPN do computador Laravel, onde o servidor está vinculado. Configure o mesmo segredo de serviço em `MATLAB_LARAVEL_API_TOKEN` no `backend/.env` e na sessão MATLAB; não o salve no repositório. A URL é obrigatória para evitar que o cliente se conecte silenciosamente ao host errado. O script mantém o DAQ no loop principal e executa as chamadas Laravel em um background worker. MATLAB faz requisições HTTP diretamente, portanto essa comunicação não depende de CORS. Envie a ativação pelo dashboard autenticado; o backend autoriza e enfileira o comando para MATLAB.
 
 ## Escopo deste repositório hoje
 
