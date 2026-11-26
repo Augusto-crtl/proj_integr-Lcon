@@ -30,7 +30,6 @@ class LaravelIntegrationApiTest extends TestCase
                     'temp' => 25.4,
                     'system_status' => 'OFF',
                     'setpoint' => 30,
-                    'user_id' => null, // Mantém telemetria espontânea explicitamente sem usuário humano.
                 ],
             ])
             ->assertCreated()
@@ -64,6 +63,17 @@ class LaravelIntegrationApiTest extends TestCase
 
         $this->assertDatabaseHas('readings', ['id' => $response->json('id'), 'user_id' => $user->id]); // Confirma a associação relacional da leitura.
         $this->withToken('test-matlab-service-token')->getJson('/api/commands')->assertJsonPath('commands', []); // Confirma a rota de comandos segue operacional.
+    }
+
+    public function test_matlab_reading_accepts_payload_without_session_user_id(): void
+    {
+        $this->withToken('test-matlab-service-token')
+            ->postJson('/api/readings', [
+                'source' => 'matlab-ni-usb-6003',
+                'recorded_at' => now()->toISOString(),
+                'variables' => ['temp' => 26.1, 'system_status' => 'OFF', 'setpoint' => 30],
+            ])
+            ->assertCreated(); // Aceita o payload padrão MATLAB quando ainda não há usuário de sessão.
     }
 
     public function test_control_commands_are_queued_until_matlab_acknowledges_them(): void
