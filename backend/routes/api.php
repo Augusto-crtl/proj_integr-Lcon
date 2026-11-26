@@ -7,7 +7,7 @@ use App\Http\Controllers\Api\ReadingController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('auth')->middleware('throttle:10,1')->group(function () {
-    Route::post('/register', [AuthController::class, 'register']);
+    Route::post('/register', [AuthController::class, 'register'])->middleware('registration.enabled'); // Permite desabilitar cadastro público por configuração de implantação.
     Route::post('/login', [AuthController::class, 'login']);
 });
 

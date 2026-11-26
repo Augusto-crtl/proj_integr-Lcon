@@ -160,6 +160,7 @@ commandsApiOk = true;
 readingsApiOk = true;
 apiFailureReported = false;
 requireFreshActivation = true;
+activeUserId = []; % Guarda o usuário do último comando aplicado para associar as leituras desta sessão.
 hasReading = false;
 latestReading = struct();
 lastCommandPoll = tic;
@@ -217,6 +218,9 @@ while true
 
                 commandName = string(command.name);
                 commandValue = command.value;
+                if isfield(command, "user_id") && ~isempty(command.user_id) % Lê a identidade humana associada ao comando enfileirado.
+                    activeUserId = command.user_id; % Mantém o autor do comando para incluir na telemetria subsequente.
+                end % Finaliza a atualização do usuário da sessão de controle.
                 acknowledgementStatus = "applied";
                 rejectionReason = "";
 
@@ -280,7 +284,8 @@ while true
             variables = struct( ...
                 "temp", latestReading.temp, ...
                 "system_status", char(systemStatus), ...
-                "setpoint", setpoint);
+                "setpoint", setpoint, ...
+                "user_id", activeUserId);
             reading = struct( ...
                 "source", "matlab-ni-usb-6003", ...
                 "recorded_at", timestamp, ...

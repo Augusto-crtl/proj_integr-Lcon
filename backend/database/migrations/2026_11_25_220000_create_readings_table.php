@@ -10,6 +10,7 @@ return new class extends Migration
     {
         Schema::create('readings', function (Blueprint $table) {
             $table->id();
+            $table->foreignId('user_id')->nullable()->constrained()->nullOnDelete(); // Associa a leitura ao usuário que solicitou o comando de controle.
             $table->string('source', 100);
             $table->timestamp('recorded_at')->index();
             $table->longText('variables');

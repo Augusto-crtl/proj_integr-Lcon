@@ -56,6 +56,7 @@ class CommandController extends Controller
                 'id' => $command->id,
                 'name' => $command->name,
                 'value' => (float) $command->value,
+                'user_id' => $command->created_by, // Informa ao cliente de aquisição o usuário associado à sessão de controle.
             ]);
 
         return response()->json(['commands' => $commands]);

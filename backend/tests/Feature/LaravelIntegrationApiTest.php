@@ -30,6 +30,7 @@ class LaravelIntegrationApiTest extends TestCase
                     'temp' => 25.4,
                     'system_status' => 'OFF',
                     'setpoint' => 30,
+                    'user_id' => null, // Mantém telemetria espontânea explicitamente sem usuário humano.
                 ],
             ])
             ->assertCreated()
@@ -43,9 +44,26 @@ class LaravelIntegrationApiTest extends TestCase
         $this->getJson('/api/readings/history?limit=60')
             ->assertOk()
             ->assertJsonPath('0.source', 'matlab-ni-usb-6003')
+            ->assertJsonPath('0.user_id', null) // Mantém sem autor a leitura quando o MATLAB não informa usuário ativo.
             ->assertJsonPath('0.received_at', now()->startOfSecond()->toISOString()) // Confirma que o histórico informa o horário de recebimento no servidor.
             ->assertJsonPath('0.variables.temp', 25.4)
             ->assertJsonPath('0.variables.system_status', 'OFF');
+    }
+
+    public function test_matlab_reading_records_the_control_session_user(): void
+    {
+        $user = User::factory()->create(); // Cria o usuário que controla a sessão física.
+
+        $response = $this->withToken('test-matlab-service-token')
+            ->postJson('/api/readings', [
+                'source' => 'matlab-ni-usb-6003',
+                'recorded_at' => now()->toISOString(),
+                'variables' => ['temp' => 26.1, 'user_id' => $user->id],
+            ])
+            ->assertCreated(); // Envia telemetria com o identificador de sessão validado.
+
+        $this->assertDatabaseHas('readings', ['id' => $response->json('id'), 'user_id' => $user->id]); // Confirma a associação relacional da leitura.
+        $this->withToken('test-matlab-service-token')->getJson('/api/commands')->assertJsonPath('commands', []); // Confirma a rota de comandos segue operacional.
     }
 
     public function test_control_commands_are_queued_until_matlab_acknowledges_them(): void
@@ -64,6 +82,8 @@ class LaravelIntegrationApiTest extends TestCase
             ->assertJsonPath('commands.0.id', $command)
             ->assertJsonPath('commands.0.name', 'setpoint')
             ->assertJsonPath('commands.0.value', 45);
+        $this->assertDatabaseHas('control_commands', ['id' => $command, 'created_by' => $user->id]); // Confirma o vínculo entre comando e usuário que o enviou.
+        $this->assertDatabaseHas('control_commands', ['id' => $command, 'created_by' => $user->id]); // Confirma que o comando mantém seu autor humano.
 
         $this->withToken('test-matlab-service-token')
             ->postJson('/api/commands/ack', ['id' => $command, 'status' => 'applied'])
@@ -87,6 +107,12 @@ class LaravelIntegrationApiTest extends TestCase
         $user = User::factory()->create();
         Sanctum::actingAs($user);
         $this->getJson('/api/admin/logs')->assertForbidden();
+        $this->getJson('/api/admin/backups')->assertForbidden(); // Impede usuário comum de listar backups.
+        $this->postJson('/api/admin/backups')->assertForbidden(); // Impede usuário comum de criar backups.
+        $this->postJson('/api/admin/restore', ['backup' => 'backup.sqlite', 'confirmation' => true])->assertForbidden(); // Impede usuário comum de restaurar o banco.
+        $this->getJson('/api/admin/backups')->assertForbidden(); // Garante que usuário comum não lista backups.
+        $this->postJson('/api/admin/backups')->assertForbidden(); // Garante que usuário comum não cria backups.
+        $this->postJson('/api/admin/restore', ['backup' => 'arquivo.sqlite', 'confirmation' => true])->assertForbidden(); // Garante que usuário comum não restaura o banco.
 
         $admin = User::factory()->create(['is_admin' => true]);
         Sanctum::actingAs($admin);
@@ -118,5 +144,25 @@ class LaravelIntegrationApiTest extends TestCase
 
         $this->withToken($token)->postJson('/api/auth/logout')->assertOk();
         $this->assertDatabaseCount('personal_access_tokens', 0);
+    }
+
+    public function test_registration_can_be_disabled_by_environment_configuration(): void
+    {
+        config(['services.registration.enabled' => false]); // Fecha o cadastro público para o caso de produção.
+
+        $this->postJson('/api/auth/register', [
+            'name' => 'Test User',
+            'email' => 'disabled@example.com',
+            'password' => 'secure-password',
+        ])->assertForbidden(); // Verifica que a política nega novos cadastros.
+    }
+
+    public function test_matlab_service_accepts_current_and_previous_tokens_for_rotation(): void
+    {
+        config(['services.matlab.previous_tokens' => ['retired-matlab-token']]); // Configura a chave anterior durante uma janela curta de rotação.
+
+        $this->withToken('retired-matlab-token')
+            ->getJson('/api/commands')
+            ->assertOk(); // Confirma compatibilidade temporária com a credencial anterior.
     }
 }

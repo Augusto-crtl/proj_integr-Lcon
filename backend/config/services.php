@@ -37,6 +37,11 @@ return [
 
     'matlab' => [
         'token' => env('MATLAB_LARAVEL_API_TOKEN'),
+        'previous_tokens' => array_filter(explode(',', env('MATLAB_LARAVEL_API_PREVIOUS_TOKENS', ''))), // Mantém tokens anteriores por janela curta durante rotação.
+    ],
+
+    'registration' => [
+        'enabled' => (bool) env('REGISTRATION_ENABLED', true), // Permite desligar cadastro público sem alterar a rota.
     ],
 
 ];

@@ -18,7 +18,9 @@ Mantenha `backend/` e `frontend/` lado a lado: as rotas web Laravel carregam `fr
 - Envio de comandos de setpoint e liga/desliga ao MATLAB; a interface aguarda uma leitura posterior para indicar que o valor foi aplicado.
 - Simulação manual do dashboard e Sombra Digital, ambas executadas localmente no navegador. A simulação do dashboard só gera amostras quando ativada; seus controles não enviam comandos à API. Os parâmetros PI da Sombra Digital não são enviados ao MATLAB ou ao hardware.
 - Área administrativa para consulta de auditoria, criação e listagem de backups SQLite e restauração confirmada.
-- Criptografia Laravel para variáveis das leituras, valores de comandos, endereços IP e metadados de auditoria, usando `APP_KEY`.
+- Criptografia Laravel para variáveis das leituras, valores de comandos, endereços IP, metadados de auditoria e sessões, usando `APP_KEY`.
+- Cadastro público configurável por `REGISTRATION_ENABLED`; tokens MATLAB com suporte a rotação por `MATLAB_LARAVEL_API_PREVIOUS_TOKENS`.
+- Leituras podem registrar o usuário da sessão de controle em `variables.user_id`; telemetria sem comando humano permanece sem usuário associado.
 
 Não há WebSocket. Sem telemetria atual, o dashboard indica dados indisponíveis ou desconectados; a simulação manual é uma opção local explícita.
 
@@ -32,10 +34,10 @@ Prefixo: `/api`. As rotas de usuário usam `Authorization: Bearer <token-sanctum
 | `POST /auth/login` | Público, limite de 10 requisições por minuto junto com cadastro | Autentica usuário e emite token Sanctum. Corpo: `email`, `password`. |
 | `GET /auth/user` | Usuário autenticado | Retorna os dados do usuário atual e seu perfil. |
 | `POST /auth/logout` | Usuário autenticado | Revoga o token atual. |
-| `POST /readings` | Serviço MATLAB | Persiste uma leitura; requer `source`, `recorded_at` e `variables.temp`. `variables.system_status` aceita `ON` ou `OFF`; `variables.setpoint` aceita de 20 a 99. |
+| `POST /readings` | Serviço MATLAB | Persiste uma leitura; requer `source`, `recorded_at` e `variables.temp`. `variables.user_id` opcional associa a leitura ao usuário da sessão; `variables.system_status` aceita `ON` ou `OFF`; `variables.setpoint` aceita de 20 a 99. |
 | `GET /readings/history?limit=60` | Usuário autenticado | Retorna um array de leituras em ordem cronológica. O limite opcional vai de 1 a 500 e o padrão é 60. Cada item inclui `recorded_at`, `received_at` e `variables`. |
 | `POST /commands/add` | Usuário autenticado | Enfileira `setpoint` (20 a 99) ou `flag` (0 = OFF, 1 = ON). |
-| `GET /commands` | Serviço MATLAB | Retorna até 100 comandos pendentes, em ordem de criação. |
+| `GET /commands` | Serviço MATLAB | Retorna até 100 comandos pendentes, em ordem de criação, incluindo `user_id` do autor para associação da telemetria da sessão. |
 | `POST /commands/ack` | Serviço MATLAB | Confirma um comando com `id` e estado `applied` ou `rejected`; rejeições aceitam `reason`. |
 | `GET /admin/logs` | Administrador | Retorna até 200 eventos de auditoria. |
 | `GET /admin/backups` | Administrador | Lista backups SQLite disponíveis. |
@@ -88,6 +90,8 @@ Configure no `backend/.env` um segredo forte para a comunicação MATLAB:
 
 ```dotenv
 MATLAB_LARAVEL_API_TOKEN=<segredo-compartilhado-com-o-cliente-matlab>
+MATLAB_LARAVEL_API_PREVIOUS_TOKENS=
+REGISTRATION_ENABLED=true
 ```
 
 Não grave o segredo ou `APP_KEY` no repositório. Inicie o servidor Laravel em `backend/`:
@@ -98,6 +102,8 @@ php artisan serve --host 127.0.0.1 --port 8000
 
 Acesse `http://127.0.0.1:8000`. Para conectar MATLAB em outro computador, vincule o servidor ao endereço privado adequado da LAN ou VPN e use esse endereço no cliente. Restrinja o acesso à rede privada; `php artisan serve` é para desenvolvimento, não para implantação pública.
 
+Em implantação fora de `local` e `testing`, o middleware recusa requisições HTTP. Configure TLS/HTTPS no servidor web ou proxy reverso e encaminhe corretamente o esquema original da conexão. Desabilite o cadastro público com `REGISTRATION_ENABLED=false` após criar as contas necessárias. Para rotacionar o token MATLAB, configure o novo valor em `MATLAB_LARAVEL_API_TOKEN`, mantenha temporariamente o token antigo em `MATLAB_LARAVEL_API_PREVIOUS_TOKENS`, atualize o ambiente MATLAB e depois remova o token antigo. Guarde uma cópia protegida de `APP_KEY`: a rotação sem `APP_PREVIOUS_KEYS` pode tornar os dados criptografados existentes ilegíveis.
+
 Cadastros criam contas comuns. Para promover uma conta já cadastrada, use `php artisan tinker` em `backend/`:
 
 ```php
@@ -107,6 +113,8 @@ $user->save();
 ```
 
 Execute os testes existentes a partir de `backend/` com `php artisan test`.
+
+Em produção, configure `APP_ENV=production`, `APP_DEBUG=false`, HTTPS no servidor web ou proxy, `REGISTRATION_ENABLED=false` após provisionar as contas necessárias e mantenha os segredos fora do repositório.
 
 ## Cliente MATLAB
 
